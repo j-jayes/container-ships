@@ -1,0 +1,42 @@
+---
+title: "ship-scraper-vessel-finder"
+author: "JJayes"
+date: "28/03/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+
+
+library(pacman)
+p_load(tidyverse, rvest, glue)
+
+```
+
+### Purpose
+
+I want to scrape information about cargo and container ships from wikipedia and make a shiny app out of it so that people can see how big ships have become.
+
+```{r}
+
+url <- "https://www.vesselfinder.com/vessels?page=1&type=401"
+
+html <- read_html(url)
+
+table <- html %>% 
+  html_nodes(".results") %>% 
+  html_table()
+
+table <- table[[1]]
+
+page <- table %>% 
+  as_tibble(.name_repair = "unique") %>% 
+  select(-Vessel...1) %>% 
+  mutate(Vessel...2 = str_squish(Vessel...2)) %>% 
+  rename(name = Vessel...2) %>% 
+  mutate(name = str_remove_all(name, " Container Ship"),
+         name = str_to_title(name))
+
+```
+
