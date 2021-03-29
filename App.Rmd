@@ -16,6 +16,7 @@ library(shiny)
 library(plotly)
 library(glue)
 library(ggridges)
+library(DT)
 
 df <- read_rds("data/combined_data.rds") %>% 
   distinct(name, .keep_all = T) %>% 
@@ -29,7 +30,7 @@ theme_set(theme_light())
 
 
 
-How big are container ships? {.storyboard}
+How big are container ships?{.storyboard}
 ==================================================================================
 
 ### They're pretty big! This image is from [The Geography of Transport Systems](https://transportgeography.org/contents/chapter5/maritime-transportation/evolution-containerships-classes/) and shows how container ships have become pretty large! 
@@ -42,7 +43,7 @@ knitr::include_graphics("images/contaienrships_types.png")
 
 
 ***
-The latest generation of Ultra Large Container Ships (ULCS) can carry more than 15,000 TEUs, or twenty-foot equivalent units, the measure that shipping companies use to compare volume. The Ever Given has a capacity of 20,124 TEU. That's 
+The latest generation of Ultra Large Container Ships (ULCS) can carry more than 15,000 TEUs, or twenty-foot equivalent units, the measure that shipping companies use to compare volume. The Ever Given has a capacity of 20,124 TEU. That's enough space for 745 million bananas!
 
 Source: [Wikipedia](https://en.wikipedia.org/wiki/Ever_Given)
 
@@ -143,7 +144,7 @@ selectizeInput("feature", label = "Chosen metric:",
 
 Wow! That's a steep increase in the amount of stuff these cargo ships can carry! The Ever Given, highlighted here with a midnight blue diamond is among the largest cargo ships today. Launched in 2018, she has a deadweight tonnage capacity of nearly 220,000 tonnes.
 
-### There appears to be a bifurcation in cargo ship size -- a trend towards many small cargo ships and relatively fewer very very big ones.
+### There appears to be a bifurcation in cargo ship size -- a trend towards many small cargo ships and relatively fewer very, very big ones.
 
 ```{r}
 
@@ -195,6 +196,7 @@ renderPlotly({
     scale_shape_manual(values = 18) +
     scale_x_continuous(guide = guide_axis(check.overlap = T)) +
     scale_y_continuous(labels = scales::number_format()) +
+    scale_color_viridis_d() +
     facet_wrap(~ feature, scales = "free_x") +
     labs(x = "Value (m)",
          y = "Gross tonnage",
@@ -218,29 +220,103 @@ It is interesting to see that the container ships all have relatively low drafts
 
 selectizeInput("facet_big", label = "Chosen comparison metric(s):",
             choices = unique(df_plot$feature), 
-            selected = "Draft",
+            selected = c("Length", "Draft"),
             multiple = T)
 
 ```
 
-
-
 Data
 ==================================================================================
 
+### The data for this project is sourced from a number of places. The scraping code is up on my Github reposiory, accessible [here](https://github.com/j-jayes/container-ships)
+
+Below I show the code for scraping one website, [Vessel Finder](https://www.vesselfinder.com/vessels?page=1&type=401).
+
+We create a list of pages to scrape, a function that grabs the data, and then iterate through each page to get the data and store it.
+
+<details><summary>Click here to see how we make the list of pages</summary>
+
+The format of the url is a stub, page number, and type spcification for container ships "type=401".
+
+```{r, echo=T, eval=F}
+# list of urls to scrape
+list_of_pages <- str_c("https://www.vesselfinder.com/vessels?page=", 
+                       1:200, 
+                       "&type=401") %>% 
+  as_tibble() %>% 
+  rename(url = value)
+
+```
+
+</details>
+
+Now we need a function to grab all of the data from each page
+
+<details><summary>Click here to see how we collect the data from the page</summary>
+
+```{r, echo=T, eval=F}
+
+get_data_vessel_finder <- function(url){
+  # store the html from the page
+  html <- read_html(url)
+  
+  message(glue("Getting ad from {url}"))
+  
+  table <- html %>% 
+  html_nodes(".results") %>% 
+  html_table()
+
+  table <- table[[1]]
+
+  page <- table %>% 
+    as_tibble(.name_repair = "unique") %>% 
+    select(-Vessel...1) %>% 
+    mutate(Vessel...2 = str_squish(Vessel...2)) %>% 
+    rename(name = Vessel...2) %>% 
+    mutate(name = str_remove_all(name, " Container Ship"),
+           name = str_to_title(name))
+  
+  page
+  
+}
+
+```
+
+</details>
+
+Now we put them together and iterate through each url
+
+<details><summary>Click here to see how we iterate</summary>
+
+
+```{r, echo=T, eval=F}
+df <- list_of_pages %>%
+    # the possibly will tell us if a page has failed, nice!
+    mutate(data = map(url, possibly(get_data_vessel_finder, "failed")))
+
+df <- df %>% 
+  unnest(data) %>% 
+  janitor::clean_names() %>% 
+  extract(size_m, c("length", "width"), "^([0-9]+)(.*)") %>% 
+  mutate(across(length:width, parse_number)) %>% 
+  rename(launched = built)
+
+write_rds(df, "data/vessel_finder_data.rds")
+
+```
+
+</details>
+
+This is now what the scraped data looks like:
 
 ```{r}
 
-library(DT)
-
 df %>% 
-  relocate(url, .before = source) %>% 
+  filter(source == "vesselfinder_website") %>% 
+  select(name:beam) %>% 
   datatable()
 
 
 ```
 
 
-*** 
-
-The data for this project is sourced from a number of places. The scraping code is up on my Github reposiory.
