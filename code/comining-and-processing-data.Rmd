@@ -1,0 +1,40 @@
+---
+title: "combining-and-processing-data"
+author: "JJayes"
+date: "29/03/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+
+library(pacman)
+p_load(tidyverse, rvest, glue, lubridate)
+
+theme_set(theme_light())
+```
+
+### Read in data
+
+```{r}
+
+df_1 <- read_rds("data/cargo_ship_info.rds")
+
+df_1 <- df_1 %>% 
+  mutate(source = "wikipedia_list_of_cargo_ships")
+
+df_2 <- read_rds("data/large_ships_data.rds")
+
+df_2 <- df_2 %>% 
+  mutate(source = "wikipedia_list_of_large_ships")
+
+df_3 <- read_rds("data/vessel_finder_data.rds")
+
+df_3 <- df_3 %>% 
+  mutate(source = "vesselfinder_website")
+
+```
+
+
+### To combine we need harmonious names
+

@@ -1,0 +1,100 @@
+---
+title: "large-ships-wiki-scraper"
+author: "JJayes"
+date: "29/03/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+
+library(pacman)
+p_load(tidyverse, rvest, glue, lubridate)
+
+theme_set(theme_light())
+```
+
+### Largest ships by gross tonnage
+
+```{r}
+
+url <- "https://en.wikipedia.org/wiki/List_of_largest_ships_by_gross_tonnage"
+
+html <- read_html(url)
+
+table <- html %>% 
+  html_nodes(".sortable") %>% 
+  html_table()
+
+table <- table[[1]]
+
+table <- table %>% 
+  janitor::clean_names() %>% 
+  mutate(across(length:gross_tonnage, parse_number),
+         type = as.factor(type))
+
+table
+
+```
+
+### Flag for ever given
+
+```{r}
+table <- table %>% 
+  mutate(flag = if_else(name == "Ever Given", 1, 0)) %>% 
+  filter(type != "Crane vessel")
+
+# write_rds(table, "data/large_ships_data.rds")
+```
+
+## How big is the Ever Given in comparison to other large ships?
+
+```{r}
+
+table %>% 
+  ggplot(aes(length, gross_tonnage, colour = type, group = 1)) +
+  geom_smooth(method = "lm", se = T, colour = "grey50") +
+  geom_point() +
+  geom_text(data = table %>% filter(flag == 1), aes(label = name), show.legend = F) +
+  scale_x_continuous(guide = guide_axis(check.overlap = T)) +
+  scale_y_continuous(labels = scales::number_format()) +
+  labs(x = "Length (m)",
+       y = "Gross tonnage",
+       colour = "Type")
+
+```
+
+It is large, among the longest container ships. However we can see that there are some supertankers which are both longer and have much greater capacity. Even the cruis ships in our data set are larger in gross tonnage.
+
+### What about the other features of largeness?
+
+```{r}
+
+table_facet <- table %>% 
+  pivot_longer(length:draft, names_to = "feature", values_to = "value") %>% 
+  mutate(feature = str_to_title(feature)) %>% 
+  mutate(feature = factor(feature, levels = c("Length", "Draft", "Beam")))
+  
+table_facet %>%   
+  ggplot(aes(value, gross_tonnage, colour = type, group = 1)) +
+  geom_smooth(method = "lm", se = T, colour = "grey50") +
+  geom_point() +
+  geom_point(data = table_facet %>% filter(flag == 1), 
+             aes(shape = name), 
+             cex = 10,
+             show.legend = T) +
+  geom_text(data = table_facet %>% filter(flag == 1),
+            aes(label = name), show.legend = F, colour = "grey25", size = 3) +
+  scale_shape_manual(values = 18) +
+  scale_x_continuous(guide = guide_axis(check.overlap = T)) +
+  scale_y_continuous(labels = scales::number_format()) +
+  facet_wrap(~ feature, scales = "free_x") +
+  labs(x = "Value (m)",
+       y = "Gross tonnage",
+       colour = "Type",
+       shape = "Highlight")
+
+```
+
+Here we can see that the Ever given has about average draft and beam for it's gross tonnage.
+
