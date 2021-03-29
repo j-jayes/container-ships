@@ -1,0 +1,53 @@
+---
+title: "Untitled"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+```
+
+
+### Planning
+
+I want to make a flexdashboard that tells a story. 
+
+I want to ask the question, "How big is the Ever Given"?
+
+I want to have a sectio on the history of cargo ships, and show how big they have become.
+
+Then I want to compare the Ever Given to other container ships.
+
+Then I want to compare it to other large ships.
+
+I want to learn about the storyboard function.
+
+I also want to have a tab that compares the Ever Given to other big things, like a Supertrumps comparison.
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Chart A
+
+```{r}
+
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Chart B
+
+```{r}
+
+```
+
+### Chart C
+
+```{r}
+
+```
+

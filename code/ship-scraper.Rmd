@@ -74,7 +74,7 @@ We want it's date of launch, it's type, tonnage, length, beam and speed.
 ```{r}
 url <- "https://en.wikipedia.org//wiki/Algorail"
 
-get_ship_info <- function(url){
+get_ship_info_wiki_list <- function(url){
   # store the html from the page
   html <- read_html(url)
   # nice message so that we can see progress.
@@ -99,24 +99,34 @@ get_ship_info <- function(url){
 # mapping through each url
 df <- list_of_links %>%
         # the possibly statement here means that we will record if there is a failure, for example if there is no infobox in an article.
-        mutate(text = map(url, possibly(get_ship_info, "failed")))
+        mutate(text = map(url, possibly(get_ship_info_wiki_list, "failed")))
 
-df <- df %>% 
+df_test <- df %>% 
   # first we remove the ships that failed.
   unnest(text) %>% 
   filter(is.na(text)) %>% 
-  select(-text) %>% 
+  select(-text)
+
+
+df_test %>% 
+  mutate(value = str_squish(value)) %>% 
+  group_by(url) %>% 
+  mutate(row_id = row_number()) %>%
   filter(title %in% c("Name:",
            "Launched:",
            "Status:",
            "Tonnage:",
            "Length:",
-           "Beam:")) %>% 
-  mutate(value = str_squish(value)) %>% 
+           "Beam:")) %>%
   # then we pivot wider so that each ship is one row
-  pivot_wider(names_from = title) %>% 
+  pivot_wider(names_from = title, values_from = value) %>% 
   # cleaning the names makes it easier to use these columns later
-  janitor::clean_names()
+  janitor::clean_names() %>% 
+  ungroup() %>% 
+  select(-row_id) %>% 
+  group_by(url) %>% 
+  summarise_all(funs(na.omit(.)[1]))
+
 
 write_rds(df, "data/cargo_ship_info.rds")
 
