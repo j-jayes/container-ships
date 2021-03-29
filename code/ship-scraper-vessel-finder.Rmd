@@ -1,0 +1,151 @@
+---
+title: "ship-scraper-vessel-finder"
+author: "JJayes"
+date: "28/03/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+
+
+library(pacman)
+p_load(tidyverse, rvest, glue)
+
+```
+
+### Purpose
+
+I want to scrape information about cargo and container ships from vesselfinder.com and make a shiny app out of it so that people can see how big ships have become.
+
+### Context
+
+vesselfinder has a nice table of all of the registered container ships on their website. It looks like this...
+
+### Scraper
+
+The scraper will start with creating a list of pages to scrape. The format of the url is a stub, page number, and type spcification for container ships "type=401".
+
+```{r}
+# list of urls to scrape
+list_of_pages <- str_c("https://www.vesselfinder.com/vessels?page=", 
+                       1:200, 
+                       "&type=401") %>% 
+  as_tibble() %>% 
+  rename(url = value)
+
+```
+
+Now we need a function to grab all of the data from each page
+
+```{r}
+get_data_vessel_finder <- function(url){
+  # store the html from the page
+  html <- read_html(url)
+  
+  message(glue("Getting ad from {url}"))
+  
+  table <- html %>% 
+  html_nodes(".results") %>% 
+  html_table()
+
+  table <- table[[1]]
+
+  page <- table %>% 
+    as_tibble(.name_repair = "unique") %>% 
+    select(-Vessel...1) %>% 
+    mutate(Vessel...2 = str_squish(Vessel...2)) %>% 
+    rename(name = Vessel...2) %>% 
+    mutate(name = str_remove_all(name, " Container Ship"),
+           name = str_to_title(name))
+  
+  page
+  
+}
+
+```
+
+
+Now we put them together and iterate through each url
+
+```{r}
+df <- list_of_pages %>%
+    # the possibly will tell us if a page has failed, nice!
+    mutate(data = map(url, possibly(get_data_vessel_finder, "failed")))
+
+df <- df %>% 
+  unnest(data) %>% 
+  janitor::clean_names() %>% 
+  extract(size_m, c("length", "width"), "^([0-9]+)(.*)") %>% 
+  mutate(across(length:width, parse_number)) %>% 
+  rename(launched = built)
+
+write_rds(df, "data/vessel_finder_data.rds")
+
+```
+
+### scatter plot to start with
+
+```{r}
+
+
+df_facet <- df %>% 
+  pivot_longer(c("launched", "length", "width"),
+               names_to = "feature", values_to = "value") %>% 
+  mutate(feature = str_to_title(feature)) %>% 
+  mutate(feature = factor(feature, 
+                          levels = c("Length", "Width", "Launched"))) %>% 
+  mutate(flag = if_else(name == "Ever Given", 1, 0)) %>% 
+  mutate(dwt_group = cut(dwt, 5))
+  
+df_facet %>%   
+  ggplot(aes(value, gt, colour = dwt_group, group = 1)) +
+  geom_smooth(method = "lm", se = T, colour = "grey50") +
+  geom_point() +
+  geom_point(data = df_facet %>% filter(flag == 1), 
+             aes(shape = name), 
+             cex = 10,
+             show.legend = T) +
+  geom_text(data = df_facet %>% filter(flag == 1),
+            aes(label = name), show.legend = F, colour = "grey25", size = 3) +
+  scale_shape_manual(values = 18) +
+  scale_x_continuous(guide = guide_axis(check.overlap = T)) +
+  scale_y_continuous() +
+  facet_wrap(~ feature, scales = "free_x") +
+  labs(x = "Value (m)",
+       y = "Gross tonnage",
+       colour = "Deadweight tonnage",
+       shape = "Highlight") +
+  coord_cartesian(ylim = c(.8*min(df$gt), NA))
+
+```
+
+### Container ships gt over time
+
+```{r}
+df %>% 
+  mutate(decade = round(launched, -1)) %>% 
+  ggplot(aes(decade, gt, group = decade, fill = factor(decade))) +
+  geom_boxplot() +
+  theme(legend.position = "none")
+```
+
+### What has happened to the volume of container ships over time?
+
+```{r}
+p_load(ggridges)
+
+df %>% 
+  mutate(decade = launched - launched %% 10) %>% 
+  mutate(decade = factor(decade)) %>% 
+  ggplot(aes(x = gt, y = decade, fill = stat(x))) +
+    geom_density_ridges_gradient(scale = 3, 
+                                 rel_min_height = 0.01, 
+                                 gradient_lwd = 1.) +
+  scale_x_continuous(labels = scales::number_format()) +
+  scale_fill_viridis_c(name = "Gross tonnage", option = "C",
+                       labels = scales::number_format()) +
+  labs(y = "Decade")
+
+```
+

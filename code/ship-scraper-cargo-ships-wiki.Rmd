@@ -1,0 +1,275 @@
+---
+title: "ship-scraper"
+author: "JJayes"
+date: "28/03/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+
+library(pacman)
+p_load(tidyverse, rvest, glue, lubridate)
+
+theme_set(theme_light())
+
+```
+
+### Purpose
+
+I want to scrape information about cargo and container ships from wikipedia and make a shiny app out of it so that people can see how big ships have become.
+
+### Planning
+
+I will start with two sections. One being wikipedia's list of cargo ships. The second is wikipedia's list of largest ships by gross tonnage.
+
+### List of cargo ships scraper
+
+Wikipedia's list of cargo ships past and present includes ships which carry small numbers of passengers in addition to their primary freight cargo.
+
+It looks like this:
+
+![Wikipedia screenshot](images/wikipedia_list_of_cargo_ships.png)
+
+#### Scraping
+
+The scraper first gets the links for all of the articles from the list
+
+```{r}
+link <- "https://en.wikipedia.org/wiki/List_of_cargo_ships"
+
+# function that gets the urls for each page from the list
+get_ad_links <- function(link){
+  html <- read_html(link)
+  
+  # nice little message
+  message(glue("Getting links from {link}"))
+  
+  html %>% 
+    # this html node is found with the selector gadget tool.
+    html_nodes("#mw-content-text li a") %>% 
+    # gets the links or href
+    html_attr("href") %>% 
+    # stores them as a tibble, very convenient
+    as_tibble()
+    
+}
+
+# apply function to link.
+list_of_links <- get_ad_links(link)
+
+# the problem is that there are multiple instances of the toc links, "#A", "#B" etc. We will filter these out
+list_of_links <- list_of_links %>% 
+  filter(nchar(value) > 4) %>% 
+  # this sticks the stub to the link so that we can use it later
+  mutate(value = str_c("https://en.wikipedia.org/", value)) %>% 
+  select(url = value)
+  
+```
+
+Now that we have the list of links we can get the data about each ship from the page.
+
+We want it's date of launch, it's type, tonnage, length, beam and speed.
+
+```{r}
+url <- "https://en.wikipedia.org//wiki/Algorail"
+
+get_ship_info_wiki_list <- function(url){
+  # store the html from the page
+  html <- read_html(url)
+  # nice message so that we can see progress.
+  message(glue("Getting info from {url}"))
+  
+  data <- html %>% 
+    html_node(".infobox") %>% 
+    html_table() %>% 
+    rename(title = X1,
+           value = X2)
+  
+  data
+  
+}
+
+```
+
+### Scraping each page
+
+```{r}
+
+# mapping through each url
+df <- list_of_links %>%
+        # the possibly statement here means that we will record if there is a failure, for example if there is no infobox in an article.
+        mutate(text = map(url, possibly(get_ship_info_wiki_list, "failed")))
+
+df_unnest <- df %>% 
+  # first we remove the ships that failed.
+  unnest(text) %>% 
+  filter(is.na(text)) %>% 
+  select(-text)
+
+
+df_wide <- df_unnest %>% 
+  mutate(value = str_squish(value)) %>% 
+  group_by(url) %>% 
+  mutate(row_id = row_number()) %>%
+  filter(title %in% c("Name:",
+           "Launched:",
+           "Status:",
+           "Tonnage:",
+           "Length:",
+           "Beam:")) %>%
+  # then we pivot wider so that each ship is one row
+  pivot_wider(names_from = title, values_from = value) %>% 
+  # cleaning the names makes it easier to use these columns later
+  janitor::clean_names() %>% 
+  ungroup() %>% 
+  select(-row_id) %>% 
+  group_by(url) %>% 
+  summarise_all(funs(na.omit(.)[1]))
+
+```
+
+What does the dataset look like?
+
+```{r}
+
+df_wide <- df_wide %>%
+  # extract year as a number
+  mutate(launched_year = str_extract(launched, "[1-2][0-9][0-9][0-9]"),
+         launched_year = as.numeric(launched_year)) %>% 
+  # length in meters
+  # line one gets the first number in the string with its unit
+  mutate(length_raw = str_remove_all(length, "\\(.*"),
+         # this gets then says if I find an m signifing meters
+         length_m = if_else(str_detect(length_raw, "m"), 
+                            # take the string and find a number.
+                            parse_number(length_raw), 
+                            # else take the number and multiply from feet to meters
+                            0.3048*parse_number(length_raw))) %>% 
+  mutate(length_m = round(length_m)) %>% 
+  # beam in meters
+  mutate(beam_raw = str_remove_all(beam, "\\(.*"),
+         beam_m = if_else(str_detect(beam_raw, "m"), 
+                            parse_number(beam_raw), 
+                            0.3048*parse_number(beam_raw))) %>% 
+  mutate(beam_m = round(beam_m)) %>% 
+  # tonnage
+  mutate(tonnage_n = round(parse_number(tonnage)))
+
+df_clean <- df_wide %>% 
+  select(url,
+         name,
+         launched = launched_year,
+         tonnage = tonnage_n,
+         length = length_m,
+         beam = beam_m,
+         status)
+
+write_rds(df_clean, "data/cargo_ship_info.rds")
+
+
+```
+
+### What has hapenned to the size of ships over time?
+
+Here we look at the length and width at widest point of ships over time. I show their increase in tonnage with a colour bar.
+
+```{r}
+
+df_wide %>% 
+  ggplot(aes(launched_year, tonnage_n)) +
+  geom_point()
+
+df_wide %>% 
+  mutate(decade = launched_year - launched_year %% 10) %>% 
+  group_by(decade) %>% 
+  summarise(mean_length = median(length_m, na.rm = T),
+            mean_beam = median(beam_m, na.rm = T),
+            mean_tonnage = median(tonnage_n, na.rm = T)) %>% 
+  ungroup() %>% 
+  filter(!decade %in% c(NA, 1760)) %>% 
+  ggplot(aes(fill = mean_tonnage, 
+             xmin = 0, xmax = mean_length,
+             ymin = 0, ymax = mean_beam)) +
+  geom_rect() +
+  scale_fill_viridis_c() +
+  facet_wrap(~ decade) +
+  labs(x = "Length of average ship",
+       y = "Beam of average ship (width at widest point)",
+       fill = "Tonnage of average ship") +
+  theme(legend.position = "bottom", legend.key.width = unit(2.5, "cm")) +
+  guides(fill = guide_colourbar(title.position = "bottom"))
+
+
+```
+
+### Geom boxplot
+
+```{r}
+df_wide %>% 
+  mutate(decade = launched_year - launched_year %% 10) %>% 
+  group_by(decade) %>% 
+  mutate(mean_length = mean(length_m, na.rm = T)) %>% 
+  filter(!decade %in% c(NA, 1760, 2010)) %>% 
+  ggplot(aes(decade, tonnage_n, group = decade, fill = mean_length)) +
+  geom_boxplot() +
+  scale_fill_viridis_c()
+
+```
+
+### Geom ribbon
+
+```{r}
+
+df_wide %>% 
+  mutate(decade = launched_year - launched_year %% 10) %>% 
+  group_by(decade) %>% 
+  summarise(mean_length = mean(length_m, na.rm = T),
+            mean_beam = mean(beam_m, na.rm = T),
+            mean_tonnage = mean(tonnage_n, na.rm = T)) %>% 
+  filter(!decade %in% c(NA, 1760, 2010)) %>% 
+  pivot_longer(-decade, names_to = "feature", values_to = "value") %>% 
+  ggplot(aes(decade, value, colour = feature)) +
+  geom_line() +
+  facet_wrap(~ feature, scales = "free_y")
+
+```
+
+### Another geom boxplot take
+
+This shows that ships have become wider and longer over time, but that the increase in tonnage has been relatively faster in recent years.
+
+```{r}
+df_wide %>% 
+  mutate(decade = launched_year - launched_year %% 20) %>% 
+  select(decade, length_m, beam_m, tonnage_n) %>% 
+  pivot_longer(-decade, names_to = "feature") %>% 
+  filter(!decade %in% c(NA, 1760, 2010),
+         value < 200000) %>% 
+  ggplot(aes(decade, value, group = decade)) +
+  geom_boxplot(aes(fill = decade), show.legend = F) +
+  scale_fill_viridis_c() +
+  scale_y_continuous(labels = scales::number_format()) +
+  facet_wrap(~ feature, nrow = 3, scales = "free_y")
+```
+
+### Geom point
+
+This drives home the same point, showing that the increase in tonnage of cargo ships has been relatively faster in recent years.
+
+```{r}
+df_wide %>% 
+  mutate(decade = launched_year - launched_year %% 10) %>% 
+  select(launched_year, length_m, beam_m, tonnage_n) %>% 
+  pivot_longer(-launched_year, names_to = "feature") %>% 
+  filter(!launched_year %in% c(NA, 1764),
+         value < 200000) %>% 
+  ggplot(aes(launched_year, value)) +
+  geom_smooth(se = F, colour = "grey50") +
+  geom_jitter(aes(colour = launched_year), show.legend = F) +
+  scale_colour_viridis_c() +
+  scale_y_continuous(labels = scales::number_format()) +
+  facet_wrap(~ feature, nrow = 3, scales = "free_y")
+
+```
+

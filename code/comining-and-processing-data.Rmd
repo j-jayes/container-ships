@@ -26,15 +26,60 @@ df_1 <- df_1 %>%
 df_2 <- read_rds("data/large_ships_data.rds")
 
 df_2 <- df_2 %>% 
-  mutate(source = "wikipedia_list_of_large_ships")
+  mutate(source = "wikipedia_list_of_large_ships",
+         url = "https://en.wikipedia.org/wiki/List_of_largest_container_ships") %>% 
+  select(-c(ref, flag)) %>% 
+  rename(tonnage = gross_tonnage)
 
 df_3 <- read_rds("data/vessel_finder_data.rds")
 
 df_3 <- df_3 %>% 
-  mutate(source = "vesselfinder_website")
+  mutate(source = "vesselfinder_website") %>% 
+  rename(beam = width) %>% 
+  mutate(tonnage = dwt)
+
+df_4 <- read_rds("data/large_container_ship_info.rds")
+
+df_4 <- df_4 %>% 
+  mutate(source = "wikipedia_list_of_large_container_ships",
+         url = "https://en.wikipedia.org/wiki/List_of_largest_container_ships")
 
 ```
 
 
-### To combine we need harmonious names
+### To combine we need harmonious names for columns
+
+What are the commonalities between the datasets?
+
+```{r}
+
+df_1_names <- colnames(df_1) %>% as_tibble() %>% mutate(df = "1")
+df_2_names <- colnames(df_2) %>% as_tibble() %>% mutate(df = "2")
+df_3_names <- colnames(df_3) %>% as_tibble() %>% mutate(df = "3")
+df_4_names <- colnames(df_4) %>% as_tibble() %>% mutate(df = "4")
+
+col_names <- rbind(df_1_names, df_2_names, df_3_names, df_4_names)
+
+col_names %>% 
+  count(value) %>% 
+  arrange(desc(n))
+
+df <- bind_rows(df_1,
+                df_2,
+                df_3,
+                df_4)
+
+```
+
+
+### What does it look like?
+
+```{r}
+
+df %>% 
+  skimr::skim()
+
+write_rds(df, "data/combined_data.rds")
+
+```
 

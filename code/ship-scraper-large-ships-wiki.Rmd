@@ -77,7 +77,7 @@ table_facet <- table %>%
   
 table_facet %>%   
   ggplot(aes(value, gross_tonnage, colour = type, group = 1)) +
-  geom_smooth(method = "lm", se = T, colour = "grey50") +
+  geom_smooth(method = "lm", se = F, colour = "grey50") +
   geom_point() +
   geom_point(data = table_facet %>% filter(flag == 1), 
              aes(shape = name), 
@@ -97,4 +97,41 @@ table_facet %>%
 ```
 
 Here we can see that the Ever given has about average draft and beam for it's gross tonnage.
+
+## Biggest container ships
+
+```{r}
+
+url <- "https://en.wikipedia.org/wiki/List_of_largest_container_ships"
+
+html <- read_html(url)
+
+table <- html %>% 
+  html_nodes(".wikitable") %>% 
+  html_table()
+
+table <- table[[1]]
+
+table <- table %>% 
+  janitor::clean_names()
+
+table <- table %>% 
+  select(built, name, length_overall, beam, maximum_teu, gt, operator, flag) %>% 
+  filter(row_number() != 1)
+
+table <- table %>% 
+  transmute(launched = parse_number(built),
+            name = name,
+            length = parse_number(length_overall),
+            beam = parse_number(beam),
+            maximum_teu = parse_number(maximum_teu),
+            tonnage = parse_number(gt),
+            operator = operator,
+            country_name = flag) %>% 
+  drop_na(length)
+
+write_rds(table, "data/large_container_ship_info.rds")
+
+
+```
 
