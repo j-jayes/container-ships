@@ -36,6 +36,7 @@ list_of_pages <- str_c("https://www.vesselfinder.com/vessels?page=",
 
 type <- c(0,1,2,3,4,401,402,5,6,601,602,603,7,8,901) %>% as_tibble() %>% pivot_wider(names_from = value)
 
+# this is a quick and dirty way to get the URLs of all of the different ship types.
 list_of_pages <- cbind(list_of_pages, type) %>% as_tibble() %>% 
   mutate(across(-url, ~str_c(url, .))) %>% pivot_longer(-url, names_to = "type") %>% 
   select(url = value)
@@ -62,12 +63,11 @@ get_data_vessel_finder <- function(url){
   # tidy up the output and extract type
   table <- table %>% 
     as_tibble(.name_repair = "unique") %>% 
-    select(-Vessel...1) %>% 
-    mutate(Vessel...2 = str_squish(Vessel...2)) %>% 
-    rename(name = Vessel...2) %>% 
-    mutate(type = str_squish(str_extract(name, " Container Ship| Crude Oil Tanker")),
-           name = str_remove_all(name, " Container Ship| Crude Oil Tanker"),
-           name = str_to_title(name))
+    janitor::clean_names() %>% 
+    select(-vessel_1) %>%
+    extract(vessel_2, c("name", "type"), "([A-Z]+)(\n.*)") %>% 
+    mutate(type = str_squish(type),
+           across(built:size_m, as.character))
   
   # links
   links <- html %>% 
@@ -84,26 +84,103 @@ get_data_vessel_finder <- function(url){
   
 }
 
-get_data_vessel_finder("https://www.vesselfinder.com/vessels?page=1&type=0")
-
 ```
 
 Now we put them together and iterate through each url
 
 ```{r}
 df <- list_of_pages %>%
+  filter(row_number() < 100) %>% 
     # the possibly will tell us if a page has failed, nice!
     mutate(data = map(url, possibly(get_data_vessel_finder, "failed")))
+```
 
+Here we want to get the data that we have scraped and make it a bit more tidy.
+
+```{r}
 df <- df %>% 
   unnest(data) %>% 
   janitor::clean_names() %>% 
   extract(size_m, c("length", "width"), "^([0-9]+)(.*)") %>% 
-  mutate(across(length:width, parse_number)) %>% 
+  mutate(across(built:width, parse_number)) %>% 
   rename(launched = built)
 
-write_rds(df, "data/vessel_finder_data_detailed.rds")
+df %>% 
+  filter(!is.na(type),
+         launched > 1975) %>% 
+  mutate(type = fct_lump(type, 8)) %>% 
+  ggplot(aes(launched, dwt)) +
+  geom_smooth() +
+  geom_point() +
+  facet_wrap(~ type, scales = "free_y")
 
+df %>% 
+  count(type, sort = T)
+
+df %>% 
+  filter(type == "Container Ship") %>% 
+  mutate(diff = gt - dwt) %>% 
+  ggplot(aes(launched, diff)) +
+  geom_smooth() +
+  geom_point()
+
+
+df %>% 
+  filter(!is.na(type),
+         launched > 1975) %>% 
+  mutate(type = fct_lump(type, 8)) %>% 
+  mutate(diff = gt - dwt) %>% 
+  ggplot(aes(launched, diff)) +
+  geom_smooth() +
+  geom_point() +
+  facet_wrap(~ type, scales = "free_y")
+
+df %>% 
+  filter(!is.na(type),
+         launched > 1975) %>% 
+  mutate(type = fct_lump(type, 9)) %>% 
+  filter(type != "Other") %>% 
+  ggplot(aes(length, gt, colour = type, group = 1)) +
+  geom_smooth() +
+  geom_point() +
+  scale_y_continuous(labels = scales::number_format())
+
+df %>% 
+  filter(!is.na(type),
+         launched > 1975) %>% 
+  mutate(type = fct_lump(type, 9)) %>% 
+  filter(type != "Other") %>% 
+  ggplot(aes(launched, gt, colour = type, group = 1)) +
+  # geom_smooth() +
+  geom_jitter() +
+  scale_y_continuous(labels = scales::number_format())
+
+df %>% 
+  filter(!is.na(type),
+         launched > 1975) %>% 
+  mutate(type = fct_lump(type, 9)) %>% 
+  filter(type != "Other") %>% 
+  ggplot(aes(launched, width, colour = type, group = 1)) +
+  # geom_smooth() +
+  geom_jitter() +
+  scale_y_continuous(labels = scales::number_format())
+
+df %>% 
+  filter(!is.na(type),
+         launched > 1975) %>% 
+  mutate(type = fct_lump(type, 9)) %>% 
+  filter(type != "Other") %>% 
+  ggplot(aes(launched, length, colour = type, group = 1)) +
+  # geom_smooth() +
+  geom_jitter() +
+  scale_y_continuous(labels = scales::number_format())
+
+```
+
+Need more of the types to add in here and then remove them
+
+```{r}
+write_rds(df, "data/vessel_finder_data_detailed.rds")
 ```
 
 ### scatter plot to start with
