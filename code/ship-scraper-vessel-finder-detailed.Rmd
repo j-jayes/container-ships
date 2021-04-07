@@ -46,8 +46,6 @@ list_of_pages <- cbind(list_of_pages, type) %>% as_tibble() %>%
 Now we need a function to grab all of the data from each page, including the link
 
 ```{r}
-url <- "https://www.vesselfinder.com/vessels?type=603"
-
 get_data_vessel_finder <- function(url){
   # store the html from the page
   html <- read_html(url)
@@ -65,7 +63,7 @@ get_data_vessel_finder <- function(url){
     as_tibble(.name_repair = "unique") %>% 
     janitor::clean_names() %>% 
     select(-vessel_1) %>%
-    extract(vessel_2, c("name", "type"), "([A-Z]+)(\n.*)") %>% 
+    extract(vessel_2, c("name", "type"), "([A-Z]+.*)(\n.*)") %>% 
     mutate(type = str_squish(type),
            across(built:size_m, as.character))
   
@@ -90,7 +88,6 @@ Now we put them together and iterate through each url
 
 ```{r}
 df <- list_of_pages %>%
-  filter(row_number() < 100) %>% 
     # the possibly will tell us if a page has failed, nice!
     mutate(data = map(url, possibly(get_data_vessel_finder, "failed")))
 ```
@@ -105,6 +102,77 @@ df <- df %>%
   mutate(across(built:width, parse_number)) %>% 
   rename(launched = built)
 
+```
+
+Now we have the data collected from the list of ships. We can still scrape more information about each ship like where it is and its flag.
+
+```{r}
+
+url <- "https://www.vesselfinder.com/vessels/HAI-FENG-678-IMO-9016961-MMSI-374610000"
+
+
+get_ship_info_vessel_finder <- function(ship_url){
+
+  html <- read_html(ship_url)
+  
+  message(glue("Getting ad from {ship_url}"))
+  
+  table <- html %>% 
+    html_nodes(".tparams") %>% 
+    html_table()
+  
+  t3 <- table[[3]]
+  # t3 <- t3 %>% 
+  #   filter(!X1 %in% c(""))
+  t4 <- table[[4]]
+  
+  # info_box <- bind_rows(t3, t4) %>% as_tibble()
+  info_box <- t3 %>% as_tibble()
+
+  
+  info_box <- info_box %>% 
+    mutate(across(everything(), str_squish),
+           across(everything(), as.character)) %>% distinct() %>% 
+    pivot_wider(names_from = X1, values_from = X2) %>% 
+    janitor::clean_names()
+
+}
+
+```
+
+```{r}
+df <- df %>%
+  # filter(row_number() < 11) %>% 
+  mutate(info_box = map(ship_url, possibly(get_ship_info_vessel_finder, "failed")))
+
+
+
+```
+
+
+```{r}
+write_rds(df, "data/vessel_finder_data_detailed.rds")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
 df %>% 
   filter(!is.na(type),
          launched > 1975) %>% 
@@ -175,12 +243,6 @@ df %>%
   geom_jitter() +
   scale_y_continuous(labels = scales::number_format())
 
-```
-
-Need more of the types to add in here and then remove them
-
-```{r}
-write_rds(df, "data/vessel_finder_data_detailed.rds")
 ```
 
 ### scatter plot to start with
