@@ -61,8 +61,9 @@ list_of_links <- get_ad_links(link)
 # the problem is that there are multiple instances of the toc links, "#A", "#B" etc. We will filter these out
 list_of_links <- list_of_links %>% 
   filter(nchar(value) > 4) %>% 
-  # this sticks the stub to the link so that we can use it later
+  # str_c (string concatenate) sticks the stub to the link so that we can use it later
   mutate(value = str_c("https://en.wikipedia.org/", value)) %>% 
+  # this renames the column to url
   select(url = value)
   
 ```
@@ -112,7 +113,8 @@ df_wide <- df_unnest %>%
   mutate(value = str_squish(value)) %>% 
   group_by(url) %>% 
   mutate(row_id = row_number()) %>%
-  filter(title %in% c("Name:",
+  filter(title %in% c(
+           "Name:",
            "Launched:",
            "Status:",
            "Tonnage:",
@@ -125,6 +127,7 @@ df_wide <- df_unnest %>%
   ungroup() %>% 
   select(-row_id) %>% 
   group_by(url) %>% 
+  # removes the empty cells we do not need
   summarise_all(funs(na.omit(.)[1]))
 
 ```

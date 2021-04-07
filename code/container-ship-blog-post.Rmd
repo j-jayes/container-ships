@@ -1,0 +1,339 @@
+---
+title: "blog-post-container-ships"
+author: "JJayes"
+date: "03/04/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+
+library(tidyverse)
+library(plotly)
+library(glue)
+library(ggridges)
+library(DT)
+library(pacman)
+p_load(xaringan)
+# p_load_gh("gadenbuie/xaringanExtra")
+# remotes::install_github("gadenbuie/xaringanExtra")
+library(xaringanExtra)
+
+
+df <- readRDS("~/Recon/container-ships/data/combined_data.rds") %>% 
+  distinct(name, .keep_all = T) %>% 
+  mutate(launched = case_when(
+    name == "Ever Given" ~ 2018,
+    TRUE ~ launched))
+
+theme_set(theme_light())
+```
+
+### They're pretty big! This image is from [The Geography of Transport Systems](https://transportgeography.org/contents/chapter5/maritime-transportation/evolution-containerships-classes/) and shows how container ships have become pretty large! 
+
+```{r, fig.width = 10}
+
+# knitr::include_graphics("~/Recon/container-ships/images/contaienrships_types.png")
+
+```
+
+The latest generation of Ultra Large Container Ships (ULCS) can carry more than 15,000 TEUs, or twenty-foot equivalent units, the measure that shipping companies use to compare volume. The Ever Given has a capacity of 20,124 TEU. That's enough space for 745 million bananas!
+
+Source: [Wikipedia](https://en.wikipedia.org/wiki/Ever_Given)
+
+
+### The median ship has gotten longer and wider over time. This plot shows the size of the average cargo ship by decade.
+
+```{r, fig.width = 12}
+
+df %>% 
+  mutate(decade = launched - launched %% 10) %>% 
+  group_by(decade) %>% 
+  summarise(mean_length = mean(length, na.rm = T),
+            mean_beam = mean(beam, na.rm = T),
+            mean_tonnage = mean(tonnage, na.rm = T),
+            n_ships_per_decade = n()) %>% 
+  ungroup() %>% 
+  filter(!decade %in% c(NA, 1760),
+         decade > 1860) %>% 
+  ggplot(aes(fill = mean_tonnage, 
+             xmin = 0, xmax = mean_length,
+             ymin = 0, ymax = mean_beam)) +
+  geom_rect() +
+  scale_fill_viridis_c(label = scales::number_format()) +
+  facet_wrap(~ decade) +
+  labs(x = "Length of average ship",
+       y = "Beam of average ship (width at widest point)",
+       fill = "Deadweight tonnage of average ship") +
+  theme(legend.position = "right", legend.key.height = unit(2.5, "cm")) +
+  guides(fill = guide_colourbar(title.position = "top"))
+
+```
+
+The Ever Given is 400m long and 58m wide at her widest point. This is the equivalent area of nearly 4 football fields! And to think, she has only 25 crew on her!
+
+### The increase in size has been in length, beam (width at widest point), and deadweight tonnage. Have a look at how the rate of increase in deadweight tonnage has picked up since 2000.
+
+```{r}
+
+df_facet <- df %>% 
+  filter(launched > 1970) %>%
+  pivot_longer(c("tonnage", "length", "beam"),
+               names_to = "feature", values_to = "value") %>% 
+  mutate(feature = str_to_title(feature)) %>% 
+  mutate(feature = factor(feature, 
+                          levels = c("Length", "Beam", "Tonnage"))) %>% 
+  mutate(flag_eg = if_else(name == "Ever Given", 1, 0))
+
+ g <- df_facet %>%   
+  ggplot(aes(launched, value, colour = launched, group = 1)) +
+  geom_smooth(se = T, colour = "grey50") +
+  geom_jitter() +
+  geom_point(data = df_facet %>% filter(flag_eg == 1),
+             aes(shape = name),
+             cex = 10,
+             show.legend = T,
+             colour = "midnightblue") +
+  geom_text(data = df_facet %>% filter(flag_eg == 1),
+            aes(label = name), show.legend = F, colour = "grey25", size = 6) +
+  scale_shape_manual(values = 18) +
+  scale_x_continuous(guide = guide_axis(check.overlap = T)) +
+  scale_y_continuous(labels = scales::number_format()) +
+  scale_color_viridis_c() +
+  facet_grid(feature ~ ., scales = "free") +
+  labs(x = "Year launched",
+       y = "Value",
+       colour = "Year launched",
+       shape = "Highlight") +
+  coord_cartesian(ylim = c(0, NA)) 
+  # theme(legend.position = "bottom", legend.key.height = unit(1.5, "cm")) +
+  # guides(fill = guide_colourbar(title.position = "right"))
+ 
+ggplotly(g)
+
+```
+
+Wow! That's a steep increase in the amount of stuff these cargo ships can carry! The Ever Given, highlighted here with a midnight blue diamond is among the largest cargo ships today. Launched in 2018, she has a deadweight tonnage capacity of nearly 220,000 tonnes.
+
+### Trying out the fenced divs for xarigan extra
+
+```{r panelset, echo=FALSE}
+xaringanExtra::use_panelset()
+```
+
+::::: {.panelset}
+
+::: {.panel}
+
+## Tab One {.panel-name}
+
+Amet enim aptent molestie vulputate pharetra
+vulputate primis et vivamus semper.
+
+```{r}
+
+df %>% 
+  mutate(decade = launched - launched %% 10) %>% 
+  group_by(decade) %>% 
+  summarise(mean_length = mean(length, na.rm = T),
+            mean_beam = mean(beam, na.rm = T),
+            mean_tonnage = mean(tonnage, na.rm = T),
+            n_ships_per_decade = n()) %>% 
+  ungroup() %>% 
+  filter(!decade %in% c(NA, 1760),
+         decade > 1860) %>% 
+  ggplot(aes(fill = mean_tonnage, 
+             xmin = 0, xmax = mean_length,
+             ymin = 0, ymax = mean_beam)) +
+  geom_rect() +
+  scale_fill_viridis_c(label = scales::number_format()) +
+  facet_wrap(~ decade) +
+  labs(x = "Length of average ship",
+       y = "Beam of average ship (width at widest point)",
+       fill = "Deadweight tonnage of average ship") +
+  theme(legend.position = "right", legend.key.height = unit(2.5, "cm")) +
+  guides(fill = guide_colourbar(title.position = "top"))
+
+```
+
+
+:::
+
+::: {.panel}
+
+## Tab Two {.panel-name}
+
+### Sub heading one
+
+Sit etiam malesuada arcu fusce ullamcorper
+interdum proin tincidunt curabitur felis?
+
+:::
+
+::: {.panel}
+
+## Tab Three {.panel-name}
+
+Adipiscing mauris egestas vitae pretium 
+ad dignissim dictumst platea!
+
+:::
+
+:::::
+
+### There appears to be a bifurcation in cargo ship size -- a trend towards many small cargo ships and relatively fewer very, very big ones.
+
+```{r}
+
+df %>% 
+  filter(launched > 1970) %>% 
+  mutate(decade = launched - launched %% 10) %>% 
+  mutate(decade = factor(decade)) %>% 
+  ggplot(aes(x = tonnage, y = decade, fill = stat(x))) +
+    geom_density_ridges_gradient(scale = 3, 
+                                 rel_min_height = 0.01, 
+                                 gradient_lwd = 1.) +
+  scale_x_continuous(labels = scales::number_format()) +
+  scale_fill_viridis_c(name = "Deadweight tonnage", option = "D",
+                       labels = scales::number_format()) +
+  labs(y = "Decade") +
+  theme(legend.position = "bottom", legend.key.width = unit(2.5, "cm")) +
+  guides(fill = guide_colourbar(title.position = "bottom"))
+
+```
+
+Interestingly, it looks like there is a growing bifurcation in the distribution. In other words, though the maximum size is increasing, there is a growing gap between the many smaller ships at the bottom of the distribution and the few large ones at the top. Wow! Look at those economies of scale kicking in!
+
+### How does the Ever Given compare to other large vessels?
+
+```{r}
+df_plot <- df %>% 
+  filter(!is.na(type)) %>% 
+  pivot_longer(c(length, beam, draft), names_to = "feature", values_to = "value") %>% 
+  mutate(feature = str_to_title(feature)) %>% 
+  mutate(feature = factor(feature, levels = c("Length", "Draft", "Beam"))) %>% 
+  mutate(flag_eg = ifelse(name == "Ever Given", 1, 0))
+
+h <- df_plot %>%   
+    ggplot(aes(value, tonnage, colour = type, group = 1)) +
+    geom_smooth(method = "lm", se = F, colour = "grey50") +
+    geom_point() +
+    geom_point(data = df_plot %>% filter(flag_eg == 1), 
+               aes(shape = name), 
+               cex = 10,
+               show.legend = T) +
+    geom_text(data = df_plot %>% filter(flag_eg == 1),
+              aes(label = name), show.legend = F, colour = "grey25", size = 3) +
+    scale_shape_manual(values = 18) +
+    scale_x_continuous(guide = guide_axis(check.overlap = T)) +
+    scale_y_continuous(labels = scales::number_format()) +
+    scale_color_viridis_d() +
+    facet_wrap(~ feature, scales = "free_x") +
+    labs(x = "Value (m)",
+         y = "Gross tonnage",
+         colour = "Type",
+         shape = "Highlight")
+  
+ggplotly(h)
+
+```
+
+We have seen that the Ever Given is a big container ship, but what about other types of ships? Cruise liners are pretty big, despite not being as long, have more space enclosed within the ship, known as gross tonnage. Gross tonnage, as opposed to deadweight tonnage, measures volume rather than mass.
+
+It is interesting to see that the container ships all have relatively low drafts compared to the supertankers. Cruise ships have the smallest drafts, given that the must navigate into many different harbours around the world, some of which are not suited to larger ships such as super tankers.
+
+
+Data
+
+### The data for this project is sourced from a number of places. The scraping code is up on my Github reposiory, accessible [here](https://github.com/j-jayes/container-ships)
+
+Below I show the code for scraping one website, [Vessel Finder](https://www.vesselfinder.com/vessels?page=1&type=401).
+
+We create a list of pages to scrape, a function that grabs the data, and then iterate through each page to get the data and store it.
+
+<details><summary>Click here to see how we make the list of pages</summary>
+
+The format of the url is a stub, page number, and type spcification for container ships "type=401".
+
+```{r, echo=T, eval=F}
+# list of urls to scrape
+list_of_pages <- str_c("https://www.vesselfinder.com/vessels?page=", 
+                       1:200, 
+                       "&type=401") %>% 
+  as_tibble() %>% 
+  rename(url = value)
+
+```
+
+</details>
+
+Now we need a function to grab all of the data from each page
+
+<details><summary>Click here to see how we collect the data from the page</summary>
+
+```{r, echo=T, eval=F}
+
+get_data_vessel_finder <- function(url){
+  # store the html from the page
+  html <- read_html(url)
+  
+  message(glue("Getting ad from {url}"))
+  
+  table <- html %>% 
+  html_nodes(".results") %>% 
+  html_table()
+
+  table <- table[[1]]
+
+  page <- table %>% 
+    as_tibble(.name_repair = "unique") %>% 
+    select(-Vessel...1) %>% 
+    mutate(Vessel...2 = str_squish(Vessel...2)) %>% 
+    rename(name = Vessel...2) %>% 
+    mutate(name = str_remove_all(name, " Container Ship"),
+           name = str_to_title(name))
+  
+  page
+  
+}
+
+```
+
+</details>
+
+Now we put them together and iterate through each url
+
+<details><summary>Click here to see how we iterate</summary>
+
+
+```{r, echo=T, eval=F}
+df <- list_of_pages %>%
+    # the possibly will tell us if a page has failed, nice!
+    mutate(data = map(url, possibly(get_data_vessel_finder, "failed")))
+
+df <- df %>% 
+  unnest(data) %>% 
+  janitor::clean_names() %>% 
+  extract(size_m, c("length", "width"), "^([0-9]+)(.*)") %>% 
+  mutate(across(length:width, parse_number)) %>% 
+  rename(launched = built)
+
+write_rds(df, "data/vessel_finder_data.rds")
+
+```
+
+</details>
+
+This is now what the scraped data looks like:
+
+```{r}
+
+df %>% 
+  filter(source == "vesselfinder_website") %>% 
+  select(name:beam) %>% 
+  datatable()
+
+
+```
+
+

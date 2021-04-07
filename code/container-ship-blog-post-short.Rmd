@@ -1,0 +1,239 @@
+---
+title: "container-ship-blog-post-short"
+author: "JJayes"
+date: "07/04/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+
+library(tidyverse)
+library(plotly)
+library(glue)
+library(ggridges)
+library(DT)
+library(ggrepel)
+library(pacman)
+p_load(xaringan)
+# p_load_gh("gadenbuie/xaringanExtra")
+# remotes::install_github("gadenbuie/xaringanExtra")
+library(xaringanExtra)
+
+
+df <- readRDS("~/Recon/container-ships/data/combined_data.rds") %>% 
+  distinct(name, .keep_all = T) %>% 
+  mutate(launched = case_when(
+    name == "Ever Given" ~ 2018,
+    TRUE ~ launched))
+
+theme_set(theme_light())
+```
+
+### Purpose and structure
+
+Show how cargo ships have become larger over time. Then shows the webscraping process.
+
+### How have cargo ships increased in size?
+
+```{r, fig.width = 12}
+
+df %>% 
+  mutate(decade = launched - launched %% 10) %>% 
+  group_by(decade) %>% 
+  summarise(mean_length = mean(length, na.rm = T),
+            mean_beam = mean(beam, na.rm = T),
+            mean_tonnage = mean(tonnage, na.rm = T),
+            n_ships_per_decade = n()) %>% 
+  ungroup() %>% 
+  filter(!decade %in% c(NA, 1760),
+         decade > 1860) %>% 
+  ggplot(aes(fill = mean_tonnage, 
+             xmin = 0, xmax = mean_length,
+             ymin = 0, ymax = mean_beam)) +
+  geom_rect() +
+  scale_fill_viridis_c(label = scales::number_format()) +
+  facet_wrap(~ decade) +
+  labs(x = "Length of average ship",
+       y = "Beam of average ship (width at widest point)",
+       fill = "Deadweight tonnage of average ship") +
+  theme(legend.position = "right", legend.key.height = unit(2.5, "cm")) +
+  guides(fill = guide_colourbar(title.position = "top"))
+
+```
+
+
+### Increasing size of cargo ships by different metrics.
+
+```{r}
+
+df_facet <- df %>% 
+  filter(launched > 1970) %>%
+  pivot_longer(c("tonnage", "length", "beam"),
+               names_to = "feature", values_to = "value") %>% 
+  mutate(feature = str_to_title(feature)) %>% 
+  mutate(feature = factor(feature, 
+                          levels = c("Length", "Beam", "Tonnage"))) %>% 
+  mutate(flag_eg = if_else(name == "Ever Given", 1, 0))
+
+facet_plot <- function(metric){
+  
+  df_facet %>% 
+  filter(feature == metric) %>% 
+  ggplot(aes(launched, value, colour = launched, group = 1)) +
+  geom_smooth(se = T, colour = "grey50") +
+  geom_jitter() +
+  geom_point(data = df_facet %>% filter(flag_eg == 1,
+                                        feature == metric),
+             aes(shape = name),
+             cex = 10,
+             show.legend = T,
+             colour = "midnightblue") +
+  geom_text(data = df_facet %>% filter(flag_eg == 1,
+                                       feature == metric),
+            aes(label = name), show.legend = F, colour = "grey25", size = 6) +
+  scale_shape_manual(values = 18) +
+  scale_x_continuous(guide = guide_axis(check.overlap = T)) +
+  scale_y_continuous(labels = scales::number_format()) +
+  scale_color_viridis_c() +
+  facet_grid(feature ~ ., scales = "free") +
+  labs(
+       x = "",
+       y = "",
+       colour = "Year launched",
+       shape = "Highlight") +
+  coord_cartesian(ylim = c(0, NA)) +
+  theme(legend.position = "none")
+  
+} 
+
+```
+
+
+
+```{r panelset, echo=FALSE}
+xaringanExtra::use_panelset()
+```
+
+::::: {.panelset}
+
+::: {.panel}
+
+## Length over time {.panel-name}
+
+How has the length of cargo ships changed over time?
+Mouse over a point to see the information about the ship.
+
+```{r}
+g1 <- facet_plot("Length")
+
+ggplotly(g1)
+```
+
+
+:::
+
+::: {.panel}
+
+## Width over time {.panel-name}
+
+How have cargo ship beams, or widths of ships at their widest point, changed over time?
+Mouse over a point to see the information about the ship.
+
+```{r}
+g2 <- facet_plot("Beam")
+
+ggplotly(g2)
+
+```
+
+
+:::
+
+::: {.panel}
+
+## Tonnage over time {.panel-name}
+
+How have cargo ship deadweight tonnages, or how much cargo a ship can carry, changed over time?
+Mouse over a point to see the information about the ship.
+
+```{r}
+g3 <- facet_plot("Tonnage")
+
+ggplotly(g3)
+```
+
+
+:::
+
+:::::
+
+### Birfucation in cargo ship size
+
+```{r}
+
+df %>% 
+  filter(launched > 1970) %>% 
+  mutate(decade = launched - launched %% 10) %>% 
+  mutate(decade = factor(decade)) %>% 
+  ggplot(aes(x = tonnage, y = decade, fill = stat(x))) +
+    geom_density_ridges_gradient(scale = 3, 
+                                 rel_min_height = 0.01, 
+                                 gradient_lwd = 1.) +
+  scale_x_continuous(labels = scales::number_format()) +
+  scale_fill_viridis_c(name = "Deadweight tonnage", option = "D",
+                       labels = scales::number_format()) +
+  labs(y = "Decade of ship's launch",
+       x = "Deadweight tonnage") +
+  theme(legend.position = "bottom", legend.key.width = unit(2.5, "cm")) +
+  guides(fill = guide_colourbar(title.position = "bottom"))
+
+```
+
+### Evolution of tonnage and draft
+
+```{r}
+
+df %>% 
+  ggplot(aes(draft, tonnage)) +
+  geom_point()
+
+df %>% 
+  ggplot(aes(length, tonnage)) +
+  geom_point()
+
+```
+
+```{r}
+df_ev <- df %>% 
+  mutate(decade = launched - launched %% 10) %>% 
+  group_by(decade) %>% 
+  summarise(mean_length = mean(length, na.rm = T),
+         mean_tonnage = mean(tonnage, na.rm = T)) %>% 
+  ungroup() 
+
+# Select a few date to label the chart
+tmp_date <- df_ev %>% sample_frac(0.2)
+
+df_ev %>% 
+  ggplot(aes(x=mean_length, y=mean_tonnage, label=decade)) +
+    # geom_smooth() +
+     geom_point(color="#69b3a2") +
+
+     geom_text_repel(data=tmp_date) +
+     geom_segment(color="#69b3a2", 
+                  aes(
+                    xend=c(tail(mean_length, n=-1), NA), 
+                    yend=c(tail(mean_tonnage, n=-1), NA)
+                  ),
+                  arrow=arrow(length=unit(0.3,"cm"))
+      ) +
+  scale_y_continuous(labels = scales::number_format()) +
+  labs(x = "Mean length",
+       y = "Mean tonnage")
+
+```
+
+### What about the change between deadweight and gross tonnage.
+
+Have there been 
