@@ -4,11 +4,11 @@ author: "JJayes"
 date: "07/04/2021"
 output: html_document
 ---
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = F, message = F, warning = F)
 
 library(tidyverse)
+library(rvest)
 library(plotly)
 library(glue)
 library(ggridges)
@@ -21,7 +21,7 @@ p_load(xaringan)
 library(xaringanExtra)
 
 
-df <- readRDS("~/Recon/container-ships/data/combined_data.rds") %>% 
+df <- readRDS("C:/Users/User/Documents/Recon/container-ships/data/combined_data.rds") %>% 
   distinct(name, .keep_all = T) %>% 
   mutate(launched = case_when(
     name == "Ever Given" ~ 2018,
@@ -30,13 +30,22 @@ df <- readRDS("~/Recon/container-ships/data/combined_data.rds") %>%
 theme_set(theme_light())
 ```
 
-### Purpose and structure
+### Purpose
 
-Show how cargo ships have become larger over time. Then shows the webscraping process.
+Tired of hearing about the latest Facebook or LinkedIn data leak? Get in on scraping (non-nefarious) data yourself! 
+
+In this post I want to show how easy it is to scrape data from the internet. It is the first post in a series looking at ships. I walk through scraping data from Wikipedia, one of the best places on the internet to ingest tabular data from.
+
+Before we begin with the walkthrough, I want to show what the output looks like, and show how cargo ships have become larger over time.
 
 ### How have cargo ships increased in size?
 
-```{r, fig.width = 12}
+The plot below shows the evolution of ship size from 1870 to today. On the x-axis is the length of the average cargo ship per decade from Wikipedia's list of cargo ships. on the y-axis is the average ship beam, or width at the widest point. The colour of the rectangle shows the deadweight tonnage of the average ship, or amount of cargo that the ship can carry. 
+
+<aside>
+Deadweight tonnage or tons deadweight is a measure of how much weight a ship can carry. It is the sum of the weights of cargo, fuel, fresh water, ballast water, provisions, passengers, and crew. </aside>
+
+```{r, layout="l-body-outset", fig.width = 12}
 
 df %>% 
   mutate(decade = launched - launched %% 10) %>% 
@@ -56,59 +65,53 @@ df %>%
   facet_wrap(~ decade) +
   labs(x = "Length of average ship",
        y = "Beam of average ship (width at widest point)",
-       fill = "Deadweight tonnage of average ship") +
+       fill = "DWT") +
   theme(legend.position = "right", legend.key.height = unit(2.5, "cm")) +
-  guides(fill = guide_colourbar(title.position = "top"))
+  guides(fill = guide_colourbar(title.position = "right"))
 
 ```
 
+Cargo ships have increased dramatically in size over time! The oldest ship in our dataset is the *R. J. Hackett*, one of the first Great Lakes freighters. It was just 63m long and 10m wide, with a wooden hull. According to historian Mark Thompson, the *R. J. Hackett's* boxy hull, hatch-lined deck, and placement of the deckhouses meant the ship was ideally suited for moving cargo through inland waterways. This steamer greatly influenced the development of cargo ships which followed.
 
-### Increasing size of cargo ships by different metrics.
+Today, container ships like the *Ever Given* are nearly 400m long, 60m wide, and can carry more than 20,000 TEUs. That's enough space for 745 million bananas!
+
+<aside>
+TEUs, or twenty-foot equivalent units, is the measure that shipping companies use to compare volume. A TEU is 6.1m long, 2.4m wide and usually 2.6m high. Source: [Wikipedia](https://en.wikipedia.org/wiki/Twenty-foot_equivalent_unit)
+</aside>
+
+### Increasing size of container ships by tonnage, lenght, and width
+
+In the plots below we see focus only on container ships built after 1970. This era saw the construction of the first ships purpose built to carry ISO containers, which could be loaded and unloaded rapidly at port, repacked and shipped onward on any compatible container ship. The ISO standard container transformed the shipping process and replaced the prior status quo break bulk carriers.
+
+<aside>
+If you're interested in containerization, I highly reccomend [this episode](https://www.tradetalkspodcast.com/podcast/133-how-one-man-and-some-metal-boxes-revolutionized-global-trade/) from the podcast Trade Talks, and [this eight-part series](https://cms.megaphone.fm/channel/PPY8156500299?selected=PPY1876923489) from Alexis Madrigal.
+</aside>
+
 
 ```{r}
-
-df_facet <- df %>% 
+facet_plot <- function(metric){
+  
+ df %>% 
+  mutate(flag_eg = if_else(name == "Ever Given", "Ever Given", "Other Ship")) %>% 
   filter(launched > 1970) %>%
   pivot_longer(c("tonnage", "length", "beam"),
                names_to = "feature", values_to = "value") %>% 
-  mutate(feature = str_to_title(feature)) %>% 
-  mutate(feature = factor(feature, 
-                          levels = c("Length", "Beam", "Tonnage"))) %>% 
-  mutate(flag_eg = if_else(name == "Ever Given", 1, 0))
-
-facet_plot <- function(metric){
-  
-  df_facet %>% 
   filter(feature == metric) %>% 
-  ggplot(aes(launched, value, colour = launched, group = 1)) +
-  geom_smooth(se = T, colour = "grey50") +
-  geom_jitter() +
-  geom_point(data = df_facet %>% filter(flag_eg == 1,
-                                        feature == metric),
-             aes(shape = name),
-             cex = 10,
-             show.legend = T,
-             colour = "midnightblue") +
-  geom_text(data = df_facet %>% filter(flag_eg == 1,
-                                       feature == metric),
-            aes(label = name), show.legend = F, colour = "grey25", size = 6) +
-  scale_shape_manual(values = 18) +
-  scale_x_continuous(guide = guide_axis(check.overlap = T)) +
+  mutate(value_f = scales::number(value, accuracy = 1)) %>%
+  ggplot(aes(launched, value, colour = flag_eg, size = flag_eg, group = 1, 
+             text = glue("{name}, {value_f}"))) +
+  geom_smooth(method = "lm", colour = "grey50", show.legend = F) +
+  geom_jitter(show.legend = F, alpha = .7) +
+  scale_size_manual(values = c(10,1)) +
   scale_y_continuous(labels = scales::number_format()) +
-  scale_color_viridis_c() +
-  facet_grid(feature ~ ., scales = "free") +
-  labs(
-       x = "",
-       y = "",
-       colour = "Year launched",
-       shape = "Highlight") +
-  coord_cartesian(ylim = c(0, NA)) +
-  theme(legend.position = "none")
+  # facet_wrap(~ feature, scales = "free_y") +
+  theme(legend.position = "none") +
+  labs(x = "Launched",
+       y = glue("{str_to_title(metric)}"))
   
 } 
 
 ```
-
 
 
 ```{r panelset, echo=FALSE}
@@ -119,17 +122,20 @@ xaringanExtra::use_panelset()
 
 ::: {.panel}
 
-## Length over time {.panel-name}
+## Tonnage over time {.panel-name}
 
-How has the length of cargo ships changed over time?
-Mouse over a point to see the information about the ship.
+How have cargo ship deadweight tonnages, or how much cargo a ship can carry, changed over time?
+Mouse over a point to see the name of the ship.
 
 ```{r}
-g1 <- facet_plot("Length")
+g3 <- facet_plot("tonnage") +
+  scale_color_manual(values = c("#E3211C", "#FB9A99"))
 
-ggplotly(g1)
+ggplotly(g3, tooltip = "text")
+
 ```
 
+Container ships can carry more cargo today than ever before. It's hard to get my mind around 220 000 tons of cargo!
 
 :::
 
@@ -138,37 +144,42 @@ ggplotly(g1)
 ## Width over time {.panel-name}
 
 How have cargo ship beams, or widths of ships at their widest point, changed over time?
-Mouse over a point to see the information about the ship.
+Mouse over a point to see the name of the ship.
 
 ```{r}
-g2 <- facet_plot("Beam")
+g2 <- facet_plot("beam") +
+  scale_color_manual(values = c("#33A02B", "#B2DF8A"))
 
-ggplotly(g2)
+ggplotly(g2, tooltip = "text")
 
 ```
 
+Container ships have also become wider, with lumping at 32m, 40m and 59m.
 
 :::
 
 ::: {.panel}
 
-## Tonnage over time {.panel-name}
+## Length over time {.panel-name}
 
-How have cargo ship deadweight tonnages, or how much cargo a ship can carry, changed over time?
-Mouse over a point to see the information about the ship.
+How has the length of cargo ships changed over time?
+Mouse over a point to see the name of the ship.
 
 ```{r}
-g3 <- facet_plot("Tonnage")
+g1 <- facet_plot("length") +
+  scale_color_manual(values = c("#1F78B4", "#A6CEE3"))
 
-ggplotly(g3)
+ggplotly(g1, tooltip = "text")
+
 ```
 
-
+The *Ever Given* is among the longest container ships operating today at 400m in length. The linear fit line shows that there has been a steady increase in container ship length over time.
 :::
-
 :::::
 
 ### Birfucation in cargo ship size
+
+So it certainly seems that cargo ships have been becoming larger over time. Interestingly, it appears that while the largest container ships continue to get larger, there is still a need for relatively small ships. There are a significant number of container ships that can carry less than 50 000 tons launched since 2010, shown in the density plot below. We could say that there has been a bifurcation in ship size, with a few enormous ships, and a greater number of smaller ships operating in tandem today.
 
 ```{r}
 
@@ -181,59 +192,183 @@ df %>%
                                  rel_min_height = 0.01, 
                                  gradient_lwd = 1.) +
   scale_x_continuous(labels = scales::number_format()) +
-  scale_fill_viridis_c(name = "Deadweight tonnage", option = "D",
+  scale_fill_viridis_c(name = "Deadweight tonnage of ship", option = "D",
                        labels = scales::number_format()) +
   labs(y = "Decade of ship's launch",
-       x = "Deadweight tonnage") +
+       x = "Deadweight tonnage of ship") +
   theme(legend.position = "bottom", legend.key.width = unit(2.5, "cm")) +
   guides(fill = guide_colourbar(title.position = "bottom"))
 
 ```
 
-### Evolution of tonnage and draft
+## Scraping wikipedia
+
+Now that we have had a look at the data, I want to walk through how it can easily be collected and processed for visualizing.
+
+The source of the historic data was Wikipedia's list of cargo ships, a screenshot of which I include below.
+
+```{r, fig.align="center"}
+knitr::include_graphics("C:/Users/User/Documents/Recon/container-ships/images/wikipedia_list_of_cargo_ships.png")
+```
+
+The list contains the names of the cargo ships in alphabetical order. We want to grab the links to each article from the list. We can use the **SelectorGadget** tool to highlight the CSS that leads to each ship's page. [SelectorGadget](https://selectorgadget.com/) is an open source tool that makes CSS selector generation and discovery on complicated sites a breeze. It allows you to point to a web page element with the mouse and find the CSS selector for that element. It highlights everything matched by the selector.
+
+I show here a picture of the interface with Google's Chrome browser:
+
+```{r fig.align="center"}
+knitr::include_graphics("C:/Users/User/Documents/Recon/container-ships/images/selector-gadget.png")
+```
+
+Once we have the path we want to collect the links from, we can use the `rvest` package to scrape the data. Written by Hadley Wickham, this is a package that makes it easy to scrape data from HTML web pages.
+
+We start with the url of the list:
+
+```{r}
+link <- "https://en.wikipedia.org/wiki/List_of_cargo_ships"
+```
+
+### Function to grab the ship page URLs from the list of cargo ships.
+
+Next we write a function that gets the list of links from the page. We begin by reading the HTML from the link, then selecting the nodes with the links, and select the attribute called "href" -- the url of the page for each ship. We format the output as a tibble, a data frame object that is convenient to work with. Notably this function will work for any list of pages on Wikipedia, neat!
+
+```{r}
+# function that gets the urls for each page from the list
+get_ship_links <- function(link){
+  
+  html <- read_html(link)
+  
+  # nice little message
+  message(glue("Getting links from {link}"))
+  
+  html %>% 
+    # this html node is found with the selector gadget tool.
+    html_nodes("#mw-content-text li a") %>% 
+    # gets the links or href
+    html_attr("href") %>% 
+    # stores them as a tibble, very convenient alternative to a dataframe.
+    as_tibble()
+    
+}
+```
+
+Here we apply the function to our link and get back a list of links to each page.
+
+```{r}
+# apply function to link.
+list_of_links <- get_ship_links(link)
+
+list_of_links
+```
+
+We can see we get 1 024 links back, but the problem is that there are multiple instances of the Table of Contents links, "#A", "#B" etc. We will filter these out by only selecting links with 5 or more characters.
 
 ```{r}
 
-df %>% 
-  ggplot(aes(draft, tonnage)) +
-  geom_point()
+list_of_links <- list_of_links %>% 
+  filter(nchar(value) > 4) %>% 
+  # this sticks the stub to the link so that we can use it later
+  mutate(value = str_c("https://en.wikipedia.org/", value)) %>% 
+  select(url = value)
 
-df %>% 
-  ggplot(aes(length, tonnage)) +
-  geom_point()
-
+list_of_links
+  
 ```
+
+Now that we have the list of links we can get the data about each ship from the page with a similar function. We want it's date of launch, it's type, tonnage, length, beam and status. This is all stored helpfully in the infobox on each page:
+
+```{r fig.align="center"}
+knitr::include_graphics("C:/Users/User/Documents/Recon/container-ships/images/algo-steel.png")
+```
+
+**SelectorGadget** helps us out again, returning a path to the infobox:
+
+```{r fig.align="center"}
+knitr::include_graphics("C:/Users/User/Documents/Recon/container-ships/images/info-box.png")
+```
+
 
 ```{r}
-df_ev <- df %>% 
-  mutate(decade = launched - launched %% 10) %>% 
-  group_by(decade) %>% 
-  summarise(mean_length = mean(length, na.rm = T),
-         mean_tonnage = mean(tonnage, na.rm = T)) %>% 
-  ungroup() 
+url <- "https://en.wikipedia.org//wiki/Algorail"
 
-# Select a few date to label the chart
-tmp_date <- df_ev %>% sample_frac(0.2)
-
-df_ev %>% 
-  ggplot(aes(x=mean_length, y=mean_tonnage, label=decade)) +
-    # geom_smooth() +
-     geom_point(color="#69b3a2") +
-
-     geom_text_repel(data=tmp_date) +
-     geom_segment(color="#69b3a2", 
-                  aes(
-                    xend=c(tail(mean_length, n=-1), NA), 
-                    yend=c(tail(mean_tonnage, n=-1), NA)
-                  ),
-                  arrow=arrow(length=unit(0.3,"cm"))
-      ) +
-  scale_y_continuous(labels = scales::number_format()) +
-  labs(x = "Mean length",
-       y = "Mean tonnage")
+get_ship_info_wiki_list <- function(url){
+  # store the html from the page
+  html <- read_html(url)
+  # nice message so that we can see progress.
+  message(glue("Getting info from {url}"))
+  
+  data <- html %>% 
+    html_node(".infobox") %>% 
+    html_table() %>% 
+    rename(title = X1,
+           value = X2)
+  
+  data
+  
+}
 
 ```
 
-### What about the change between deadweight and gross tonnage.
+### Scraping each page
 
-Have there been 
+```{r, eval=F, echo=T}
+# mapping through each url
+df <- list_of_links %>%
+        # the possibly statement here means that we will record if there is a failure, for example if there is no infobox in an article.
+        mutate(text = map(url, possibly(get_ship_info_wiki_list, "failed")))
+```
+
+```{r, include=F}
+df <- read_rds("C:/Users/User/Documents/Recon/container-ships/data/cargo_ship_info.rds") %>% filter(name != "Truelove")
+```
+
+First we remove the ships that failed, as they will have an `NA` in the text field.
+
+```{r, eval=F, echo=T}
+df <- df %>% 
+  unnest(text) %>% 
+  filter(is.na(text)) %>% 
+  select(-text)
+```
+
+Next we select the information from the infobox that we want to keep.
+
+```{r, eval=F, echo=T}
+df_wide <- df_unnest %>% 
+  mutate(value = str_squish(value)) %>% 
+  group_by(url) %>% 
+  mutate(row_id = row_number()) %>%
+  filter(title %in% c("Name:",
+           "Launched:",
+           "Status:",
+           "Tonnage:",
+           "Length:",
+           "Beam:")) %>%
+  # then we pivot wider so that each ship is one row
+  pivot_wider(names_from = title, values_from = value) %>% 
+  # cleaning the names makes it easier to use these columns later
+  janitor::clean_names() %>% 
+  ungroup() %>% 
+  select(-row_id) %>% 
+  group_by(url) %>% 
+  # removing the superfluous columns
+  summarise_all(funs(na.omit(.)[1]))
+
+write_rds(df_wide, "data/cargo_ship_info.rds")
+
+```
+
+Here is the output
+
+```{r}
+datatable(df %>% 
+            relocate(url, .after = status) %>% 
+            mutate(url = glue("<a href={url}>{name}</a>"),
+                   tonnage = scales::number(tonnage, accuracy = 1)) %>% 
+            arrange(launched),
+          escape = 6,
+          rownames = F,
+          colnames = str_to_title(colnames(df %>% 
+          relocate(url, .after = status))),
+          caption = "Data scraped from Wikipedia's list of cargo ships")
+```
+

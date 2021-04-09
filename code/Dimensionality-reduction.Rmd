@@ -1,0 +1,32 @@
+---
+title: "dimensionality-reduction-tidymodels"
+author: "JJayes"
+date: "08/04/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+```
+
+### Purpose
+
+Practice dimensionality reduction with the ship data.
+
+I want this as a resource I can look back at to follow the same steps again.
+
+### Reading in data
+
+```{r}
+df <- read_rds("data/vessel_finder_data_detailed_55k.rds")
+
+```
+
+### Dimensionality reduction
+
+```{r}
+df %>% 
+  
+
+```
+
