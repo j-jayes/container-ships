@@ -211,6 +211,18 @@ pca_juiced %>%
 
 Wow!! Now we can see that contianer ships are in one arm, while crude oil tankers and bulk carriers are similar to each other but distinct from the others. LPG tankers and chemical/oil products ankers are also in a simlar region, while offshore tug/ supply ships are in the region to the lower right quadrant of the plot.
 
+### PCA 3d plot
+
+```{r}
+
+plotly_pca_3d <- plot_ly(pca_juiced, x = ~PC1, y = ~PC2, z = ~PC3, color = ~type) %>% 
+  add_markers()
+
+plotly_pca_3d
+
+```
+
+
 ## UMAP
 
 UMAP does not use the same kind of maths. 
@@ -222,10 +234,10 @@ UMAP's topological map clumps them together. It's nice to have both in your tool
 ```{r}
 library(embed)
 
-umap_rec <- recipe( ~ ., data = df_type_9) %>% 
+umap_rec <- recipe( ~ ., data = df_type_6) %>% 
   update_role(name, type, new_role = "id") %>% 
   step_normalize(all_predictors()) %>% 
-  step_umap(all_predictors())
+  step_umap(all_predictors(), num_comp = 3)
 
 umap_prep <- prep(umap_rec)
 
@@ -244,6 +256,27 @@ umap_juiced
 umap_juiced %>% 
   ggplot(aes(umap_1, umap_2, colour = type)) +
   geom_point(alpha = .5)
+
+```
+ 
+UMAP 3d plot
+
+```{r}
+umap_rec_3d <- recipe( ~ ., data = df_type_6) %>% 
+  update_role(name, type, new_role = "id") %>% 
+  step_normalize(all_predictors()) %>% 
+  step_umap(all_predictors(), num_comp = 3)
+
+umap_prep_3d <- prep(umap_rec_3d)
+
+umap_juiced_3d <- juice(umap_prep_3d)
+
+umap_juiced_3d
+
+plotly_umap_3d <- plot_ly(umap_juiced_3d, x = ~umap_1, y = ~umap_2, z = ~umap_3, color = ~type) %>% 
+  add_markers()
+
+# htmlwidgets::saveWidget(plotly_3d, file = "tsne_plot.html")
 
 ```
 
@@ -292,15 +325,54 @@ Useful for visualizing highly dimensional data.
 ```{r}
 library(Rtsne)
 
-tsne_rec <- recipe( ~ ., data = df_type_6) %>% 
-  update_role(name, type, new_role = "id") %>% 
+tsne_rec <- recipe( ~ ., data = df_type_6 %>% select(launched:width)) %>% 
+  # update_role(name, type, new_role = "id") %>% 
   step_normalize(all_predictors())
+
+df_type_6_matrix <- df_type_6 %>% select(launched:width) %>%
+  distinct() %>% 
+  as.matrix() %>% scale()
+
+df_type_6_labels <- df_type_6 %>%
+  distinct(across(launched:width), .keep_all = T) %>% select(name, type)
 
 tsne_prep <- prep(tsne_rec)
 
 tsne_prep %>% as.matrix()
 
-tsne_df <- Rtsne(tsne_prep, perplexity = 25)
+tsne_df <- Rtsne(df_type_6_matrix, perplexity = 25)
+
+```
+
+
+```{r}
+library(plotly)
+
+plotly_df <- as_tibble(tsne_df$Y) %>% 
+  cbind(df_type_6_labels) %>% 
+  as_tibble() %>% 
+  mutate(type = as.factor(type))
+
+plotly_df %>% 
+  ggplot(aes(V1, V2, colour = type)) +
+  geom_point()
+```
+
+### 3d t-SNE plot
+
+```{r}
+
+tsne_d_3d <- Rtsne(df_type_6_matrix, perplexity = 25, dim = 3)
+
+plotly_df_3d <- as_tibble(tsne_d_3d$Y) %>% 
+  cbind(df_type_6_labels) %>% 
+  as_tibble() %>% 
+  mutate(type = as.factor(type))
+
+plotly_tsne_3d <- plot_ly(plotly_df_3d, x = ~V1, y = ~V2, z = ~V3, color = ~type) %>% 
+  add_markers()
+
+htmlwidgets::saveWidget(plotly_3d, file = "tsne_plot.html")
 
 ```
 
