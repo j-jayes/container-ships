@@ -7,6 +7,9 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = F, message = F, warning = F)
+
+library(tidyverse)
+library(tidymodels)
 ```
 
 ### Purpose
@@ -22,11 +25,67 @@ df <- read_rds("data/vessel_finder_data_detailed_55k.rds")
 
 ```
 
-### Dimensionality reduction
+## Dimensionality reduction
+
+PCA, UMAP, t-SNE
+
+### Cleaning
 
 ```{r}
 df %>% 
-  
+  count(type, sort = T)
+
+df <- df %>% 
+  mutate(type = str_to_lower(type),
+         type = str_squish(type))
+
+df %>% 
+  count(type, sort = T)
+
+```
+
+We will remove all unknown type, NA
+
+```{r}
+
+df <- df %>% 
+  mutate(type = str_to_lower(type),
+         type = str_squish(type)) %>% 
+  filter(!type %in% c(NA, "unknown"),
+         !is.na(length),
+         !is.na(launched),
+         !is.na(width)) %>% 
+  add_count(type) %>% 
+  filter(n > 1000) %>% 
+  select(-data)
+
+
+
+```
+
+```{r}
+
+df %>% 
+  filter(str_detect(type, "military|naval")) %>% 
+  ggplot(aes(length, width)) +
+  geom_point() +
+  facet_wrap(~ type)
+
+df %>% 
+  filter(str_detect(type, "pleasure|hsc")) %>% 
+  ggplot(aes(length, width)) +
+  geom_point() +
+  facet_wrap(~ type)
+
+df %>% 
+  filter(str_detect(type, "haz-a")) %>% view()
+
+df %>% 
+  filter(!is.na(launched)) %>% 
+  mutate(type = fct_lump(type, 9)) %>% 
+  ggplot(aes(launched)) +
+  geom_density() +
+  facet_wrap(~ type)
 
 ```
 

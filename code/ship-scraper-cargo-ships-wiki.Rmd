@@ -170,7 +170,6 @@ df_clean <- df_wide %>%
 
 write_rds(df_clean, "data/cargo_ship_info.rds")
 
-
 ```
 
 ### What has hapenned to the size of ships over time?
