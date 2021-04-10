@@ -10,6 +10,9 @@ knitr::opts_chunk$set(echo = F, message = F, warning = F)
 
 library(tidyverse)
 library(tidymodels)
+
+theme_set(theme_light())
+
 ```
 
 ### Purpose
@@ -22,7 +25,6 @@ I want this as a resource I can look back at to follow the same steps again.
 
 ```{r}
 df <- read_rds("data/vessel_finder_data_detailed_55k.rds")
-
 ```
 
 ## Dimensionality reduction
@@ -42,6 +44,17 @@ df <- df %>%
 df %>% 
   count(type, sort = T)
 
+df %>% 
+  filter(str_detect(type, "Fish")) %>% 
+  count(type, sort = T)
+
+df %>% 
+  filter(str_detect(type, "fish")) %>% 
+  ggplot(aes(length, width, colour = type)) +
+  geom_smooth(method = "lm", show.legend = F) +
+  geom_point(alpha = .5, show.legend = F) +
+  facet_wrap(~ type)
+
 ```
 
 We will remove all unknown type, NA
@@ -59,7 +72,7 @@ df <- df %>%
   filter(n > 1000) %>% 
   select(-data)
 
-
+skimr::skim(df)
 
 ```
 
@@ -86,6 +99,208 @@ df %>%
   ggplot(aes(launched)) +
   geom_density() +
   facet_wrap(~ type)
+
+```
+
+### Data is clean enough
+
+Wide format
+
+```{r}
+df <- df %>% 
+  select(name:width) %>% 
+  na.omit()
+
+df_type_9 <-  df %>% 
+  mutate(type = fct_lump(type, 9)) %>% 
+  filter(type != "Other")
+
+```
+
+### Principal component analysis
+
+Here we have a nice wide data frame with 5 numerical predictors.
+
+We will use a `recipe` from the `tidymodels` meta-package to do the PCA. First, we update the role of the name and type variables. These will not be used in the dimensionality reduction recipe, but we want to keep them in the dataset. 
+
+```{r}
+pca_rec <- recipe( ~ ., data = df_type_6) %>% 
+  update_role(name, type, new_role = "id") %>% 
+  step_normalize(all_predictors()) %>% 
+  step_pca(all_predictors())
+
+pca_rec
+
+```
+
+So this tells us what we have in the recipe.
+
+Now we can actually do the PCA with the prep command.
+
+```{r}
+# compute the values
+pca_prep <- pca_rec %>% prep()
+
+```
+
+What do the principal components looks like??
+
+Here we can see how much each variable contributes to the principal component.
+
+This hasn't really made them distinct that much... hope that it will improve with more data.
+
+```{r}
+tidied_pca <- tidy(pca_prep, 2)
+
+tidied_pca %>% 
+  filter(component %in% paste0("PC", 1:5)) %>% 
+  mutate(component = fct_inorder(component)) %>% 
+  ggplot(aes(value, terms, fill = terms)) +
+  geom_col(show.legend = F) +
+  facet_wrap(~ component, nrow = 1)
+
+```
+
+
+```{r}
+library(tidytext)
+
+tidied_pca %>% 
+  filter(component %in% paste0("PC", 1:3)) %>% 
+  group_by(component) %>% 
+  top_n(8, abs(value)) %>% 
+  ungroup() %>% 
+  mutate(terms = reorder_within(terms, abs(value), within = component)) %>% 
+  ggplot(aes(abs(value), terms, fill = value > 0)) +
+  geom_col() +
+  scale_y_reordered() +
+  facet_wrap(~ component, scales = "free_y") +
+  labs(y = NULL,
+       fill = "Positive?")
+  
+
+```
+
+
+```{r}
+pca_juiced <- pca_prep %>% juice()
+
+pca_juiced %>% 
+  ggplot(aes(PC1, PC2, colour = type)) +
+  geom_point(alpha = .5)
+
+```
+
+PC 1 and 2 explain the most variation in size of ships in this dataset. However it is still quite difficult to distinguish the differnt types.
+
+We can see that PC2, which was dominated by year of launch, is not very useful in distinguishing the ships. PC1 was a combination of similar characteristics.
+
+If we want to try another PC, let's use PC3 on the y-axis.
+
+```{r}
+
+pca_juiced %>% 
+  ggplot(aes(PC1, PC3, colour = type)) +
+  geom_point(alpha = .5)
+
+pca_juiced %>% 
+  ggplot(aes(PC2, PC3, colour = type)) +
+  geom_point(alpha = .5)
+
+```
+
+Wow!! Now we can see that contianer ships are in one arm, while crude oil tankers and bulk carriers are similar to each other but distinct from the others. LPG tankers and chemical/oil products ankers are also in a simlar region, while offshore tug/ supply ships are in the region to the lower right quadrant of the plot.
+
+## UMAP
+
+UMAP does not use the same kind of maths. 
+
+Wow look how easy it was to switch to another algorithm.
+
+UMAP's topological map clumps them together. It's nice to have both in your toolkit.
+
+```{r}
+library(embed)
+
+umap_rec <- recipe( ~ ., data = df_type_9) %>% 
+  update_role(name, type, new_role = "id") %>% 
+  step_normalize(all_predictors()) %>% 
+  step_umap(all_predictors())
+
+umap_prep <- prep(umap_rec)
+
+umap_prep
+
+```
+
+```{r}
+umap_juiced <- juice(umap_prep)
+
+umap_juiced
+```
+
+
+```{r}
+umap_juiced %>% 
+  ggplot(aes(umap_1, umap_2, colour = type)) +
+  geom_point(alpha = .5)
+
+```
+
+
+Takeaways. 
+
+1. tidymodels framework makes it so easy to swich between different kinds of algorithms.
+
+
+## ICA
+
+
+```{r}
+
+ica_rec <- recipe( ~ ., data = df_type_6) %>% 
+  update_role(name, type, new_role = "id") %>% 
+  step_normalize(all_predictors()) %>% 
+  step_ica(all_predictors())
+
+ica_prep <- prep(ica_rec)
+
+ica_prep
+
+```
+
+```{r}
+ica_juiced <- juice(ica_prep)
+
+ica_juiced
+```
+
+
+```{r}
+ica_juiced %>% 
+  ggplot(aes(IC1, IC2, colour = type)) +
+  geom_point(alpha = .5)
+
+```
+
+### t-SNE
+
+t-SNE is a non-linear clustering algorithm.
+
+Useful for visualizing highly dimensional data.
+
+```{r}
+library(Rtsne)
+
+tsne_rec <- recipe( ~ ., data = df_type_6) %>% 
+  update_role(name, type, new_role = "id") %>% 
+  step_normalize(all_predictors())
+
+tsne_prep <- prep(tsne_rec)
+
+tsne_prep %>% as.matrix()
+
+tsne_df <- Rtsne(tsne_prep, perplexity = 25)
 
 ```
 

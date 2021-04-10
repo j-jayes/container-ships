@@ -117,24 +117,21 @@ get_ship_info_vessel_finder <- function(ship_url){
   
   message(glue("Getting ad from {ship_url}"))
   
-  table <- html %>% 
-    html_nodes(".tparams") %>% 
-    html_table()
+  table_titles <- html %>% 
+    html_nodes(".ship-section") %>% 
+    html_nodes(".n3") %>% 
+    html_text()
+    
+  table_values <- html %>% 
+    html_nodes(".ship-section") %>% 
+    html_nodes(".v3") %>% 
+    html_text()
   
-  t3 <- table[[3]]
-  # t3 <- t3 %>% 
-  #   filter(!X1 %in% c(""))
-  t4 <- table[[4]]
-  
-  # info_box <- bind_rows(t3, t4) %>% as_tibble()
-  info_box <- t3 %>% as_tibble()
+  info_box <- tibble(table_titles, table_values)
 
-  
   info_box <- info_box %>% 
     mutate(across(everything(), str_squish),
-           across(everything(), as.character)) %>% distinct() %>% 
-    pivot_wider(names_from = X1, values_from = X2) %>% 
-    janitor::clean_names()
+           across(everything(), as.character))
 
 }
 
@@ -142,12 +139,19 @@ get_ship_info_vessel_finder <- function(ship_url){
 
 ```{r}
 df <- df %>%
-  # filter(row_number() < 11) %>% 
+  filter(row_number() < 11) %>%
   mutate(info_box = map(ship_url, possibly(get_ship_info_vessel_finder, "failed")))
+
+get_ship_info_vessel_finder("https://www.vesselfinder.com/vessels/CMA-CGM-LOUVRE-IMO-9839143-MMSI-228394900")
+
+df %>% 
+  unnest(info_box) %>% view()
+  filter(table_titles %in% c("Course / Speed", "Current draught", "Flag", "Summer Deadweight (t)", ""))
+
 ```
 
 ```{r}
-write_rds(df, "data/vessel_finder_data_detailed_55k.rds")
+write_rds(df, "data/vessel_finder_data_detailed_38k.rds")
 ```
 
 
