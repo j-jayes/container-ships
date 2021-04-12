@@ -1,0 +1,63 @@
+---
+title: "extra EDA"
+author: "JJayes"
+date: "11/04/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+df %>% 
+  filter(str_detect(type, "military|naval")) %>% 
+  ggplot(aes(length, width)) +
+  geom_point() +
+  facet_wrap(~ type)
+
+df %>% 
+  filter(str_detect(type, "pleasure|hsc")) %>% 
+  ggplot(aes(length, width)) +
+  geom_point() +
+  facet_wrap(~ type)
+
+df %>% 
+  filter(str_detect(type, "haz-a")) %>% view()
+
+df %>% 
+  filter(!is.na(launched)) %>% 
+  mutate(type = fct_lump(type, 9)) %>% 
+  ggplot(aes(launched)) +
+  geom_density() +
+  facet_wrap(~ type)
+
+
+```
+
+```{r}
+df %>% 
+  mutate(type = fct_lump(type, 10)) %>% 
+  group_by(type) %>% 
+  summarise(across(c(length, width, current_draught), median)) %>% 
+  ungroup() %>% 
+  ggplot(aes(length, width, size = current_draught, colour = type)) +
+  geom_point()
+
+g <- df %>% 
+  mutate(type = fct_lump(type, 15)) %>% 
+  group_by(type) %>% 
+  summarise(across(c(length, width, gt), median)) %>% 
+  ungroup() %>% 
+  ggplot(aes(length, width, size = gt, colour = type)) +
+  geom_point()
+
+plotly::ggplotly(g)
+```
+

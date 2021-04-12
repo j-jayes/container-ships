@@ -24,7 +24,7 @@ I want this as a resource I can look back at to follow the same steps again.
 ### Reading in data
 
 ```{r}
-df <- read_rds("data/vessel_finder_data_detailed_55k.rds")
+df <- read_rds("data/vessel_finder_data_detailed_clean.rds")
 ```
 
 ## Dimensionality reduction
@@ -68,9 +68,9 @@ df <- df %>%
          !is.na(length),
          !is.na(launched),
          !is.na(width)) %>% 
-  add_count(type) %>% 
-  filter(n > 1000) %>% 
-  select(-data)
+  add_count(type)
+  # filter(n > 1000) %>% 
+  # select(-data)
 
 skimr::skim(df)
 

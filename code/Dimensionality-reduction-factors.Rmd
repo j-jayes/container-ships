@@ -1,0 +1,449 @@
+---
+title: "dimensionality-reduction-tidymodels"
+author: "JJayes"
+date: "08/04/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+
+library(tidyverse)
+library(tidymodels)
+library(plotly)
+
+theme_set(theme_light())
+
+```
+
+### Purpose
+
+Practice dimensionality reduction with the ship data.
+
+I want this as a resource I can look back at to follow the same steps again.
+
+### Reading in data
+
+```{r}
+df <- read_rds("data/clean_1.rds")
+```
+
+## Dimensionality reduction
+
+PCA, UMAP, t-SNE
+
+
+```{r}
+df %>% 
+  count(type, sort = T)
+
+```
+
+We will remove all unknown type, NA
+
+```{r}
+
+
+```
+
+### Data is clean enough
+
+```{r}
+df_short <- df %>% 
+  select(name:width, course:current_draught, flag_code, position_desc, lat, long, - course) %>% 
+  na.omit()
+
+df_short <- df_short %>% 
+  mutate(flag_code = as.factor(flag_code))
+```
+
+### How are the types different?
+
+```{r}
+
+df %>% 
+  count(type, sort = T)
+
+f <- df %>% 
+  mutate(type = fct_lump(type, 20)) %>% 
+  group_by(type) %>% 
+  summarise(across(c(length, width, gt), median),
+            n = n()) %>% 
+  ungroup() %>% 
+  ggplot(aes(length, width, size = n, colour = type)) +
+  geom_point()
+
+plotly::ggplotly(f)
+
+df %>% 
+  mutate(type = fct_lump(type, 15)) %>% 
+  add_count(type) %>% 
+  mutate(type = glue("{type} ({nnn})")) %>% 
+  ggplot(aes(length, width, size = gt, colour = type)) +
+  geom_point() +
+  facet_wrap(~ type)
+
+```
+
+### What types should we keep?
+
+Some that look a bit different so that we can tell them apart?
+
+based on size:
+Yacht, tug, container ship, lng tanker, lpg tanker, offshore support vessel, bulk carrier, 
+
+based on number of observations:
+bulk carrier, container ship, fishing vessel, tug, lpg tanker, lng tanker, yacht
+
+What about "passenger (cruise) ship"	?
+
+```{r}
+df_type_7 <-  df %>% 
+  filter(type %in% c("bulk carrier", "container ship", "fishing vessel", 
+                     "tug", "lpg tanker", "lng tanker", "yacht"))
+
+df_type_7 <-  df_short %>% 
+  filter(type %in% c("container ship", "fishing vessel", 
+                     "tug", "oil products tanker"))
+
+df_type_7 %>% 
+  ggplot(aes(long, lat, colour = type)) +
+  geom_point(show.legend = F) +
+  borders("world") +
+  facet_wrap(~ type)
+
+
+```
+
+Big fishing energy in the North Sea, and in South America at the top.
+
+Container ships and LPG tankers are in the same places. Yachts are hard to see.
+
+### How do the classes differ?
+
+```{r}
+
+library(ggridges)
+
+df_type_7 %>% 
+  filter(between(speed, 1, 30)) %>% 
+  mutate(type = fct_reorder(type, speed, .fun = median)) %>% 
+  ggplot(aes(speed, type, fill = type)) +
+  geom_density_ridges() +
+  labs(title = "Distributions of moving speed")
+
+```
+
+
+### How would I do the classification manually?
+
+If in the north sea then a fishing vessel etc. Maybe limit it to four classes. One small type, certinaly container ships, then who else? 
+
+### Principal component analysis
+
+Here we have a nice wide data frame with 5 numerical predictors.
+
+We will use a `recipe` from the `tidymodels` meta-package to do the PCA. First, we update the role of the name and type variables. These will not be used in the dimensionality reduction recipe, but we want to keep them in the dataset. 
+
+```{r}
+ship_rec <- recipe( ~ ., data = df_type_7) %>% 
+  update_role(name, type, new_role = "id") %>% 
+  step_normalize(all_numeric()) %>%
+  step_other(flag_code:position_desc) %>%
+  step_dummy(flag_code:position_desc, one_hot = T)
+  
+
+pca_rec <- ship_rec %>% 
+  step_pca(all_predictors())
+
+pca_rec
+
+```
+
+So this tells us what we have in the recipe.
+
+Now we can actually do the PCA with the prep command.
+
+```{r}
+# compute the values
+pca_prep <- pca_rec %>% prep()
+
+```
+
+What do the principal components looks like??
+
+Here we can see how much each variable contributes to the principal component.
+
+This hasn't really made them distinct that much... hope that it will improve with more data.
+
+```{r}
+tidied_pca <- tidy(pca_prep, 4)
+
+tidied_pca %>% 
+  filter(component %in% paste0("PC", 1:5)) %>% 
+  mutate(component = fct_inorder(component)) %>% 
+  ggplot(aes(value, terms, fill = terms)) +
+  geom_col(show.legend = F) +
+  facet_wrap(~ component, nrow = 1)
+
+```
+
+
+```{r}
+library(tidytext)
+
+tidied_pca %>% 
+  filter(component %in% paste0("PC", 1:3)) %>% 
+  group_by(component) %>% 
+  top_n(8, abs(value)) %>% 
+  ungroup() %>% 
+  mutate(terms = reorder_within(terms, abs(value), within = component)) %>% 
+  ggplot(aes(abs(value), terms, fill = value > 0)) +
+  geom_col() +
+  scale_y_reordered() +
+  facet_wrap(~ component, scales = "free_y") +
+  labs(y = NULL,
+       fill = "Positive?")
+  
+
+```
+
+
+```{r}
+pca_juiced <- pca_prep %>% juice()
+
+pca_juiced %>% 
+  ggplot(aes(PC1, PC2, colour = type)) +
+  geom_point(alpha = .5)
+
+```
+
+PC 1 and 2 explain the most variation in size of ships in this dataset. However it is still quite difficult to distinguish the differnt types.
+
+We can see that PC2, which was dominated by year of launch, is not very useful in distinguishing the ships. PC1 was a combination of similar characteristics.
+
+If we want to try another PC, let's use PC3 on the y-axis.
+
+```{r}
+
+pca_juiced %>% 
+  ggplot(aes(PC1, PC3, colour = type)) +
+  geom_point(alpha = .5)
+
+pca_juiced %>% 
+  ggplot(aes(PC2, PC3, colour = type)) +
+  geom_point(alpha = .5)
+
+```
+
+Wow!! Now we can see that contianer ships are in one arm, while crude oil tankers and bulk carriers are similar to each other but distinct from the others. LPG tankers and chemical/oil products ankers are also in a simlar region, while offshore tug/ supply ships are in the region to the lower right quadrant of the plot.
+
+### PCA 3d plot
+
+```{r}
+
+plotly_pca_3d <- plot_ly(pca_juiced, x = ~PC1, y = ~PC2, z = ~PC3, color = ~type) %>% 
+  add_markers(colors = "Dark2")
+
+plotly_pca_3d
+
+```
+
+
+## UMAP
+
+UMAP does not use the same kind of maths. 
+
+Wow look how easy it was to switch to another algorithm.
+
+UMAP's topological map clumps them together. It's nice to have both in your toolkit.
+
+```{r}
+library(embed)
+
+umap_rec <- ship_rec %>% 
+  step_umap(all_predictors(), num_comp = 2)
+
+umap_prep <- prep(umap_rec)
+
+umap_prep
+
+```
+
+```{r}
+umap_juiced <- juice(umap_prep)
+
+umap_juiced
+```
+
+
+```{r}
+umap_juiced %>% 
+  ggplot(aes(umap_1, umap_2, colour = type)) +
+  geom_point(alpha = .5) +
+  scale_color_brewer(palette = "Dark2")
+
+```
+ 
+UMAP 3d plot
+
+```{r}
+umap_rec_3d <- ship_rec %>% 
+  step_umap(all_predictors(), num_comp = 3)
+
+umap_prep_3d <- prep(umap_rec_3d)
+
+umap_juiced_3d <- juice(umap_prep_3d)
+
+umap_juiced_3d
+
+plotly_umap_3d <- plot_ly(umap_juiced_3d, x = ~umap_1, y = ~umap_2, z = ~umap_3, color = ~type) %>% 
+  add_markers(colors = "Dark2",
+              opacity = 0.5)
+
+plotly_umap_3d
+
+# htmlwidgets::saveWidget(plotly_3d, file = "tsne_plot.html")
+
+```
+
+
+Takeaways. 
+
+1. tidymodels framework makes it so easy to swich between different kinds of algorithms.
+
+
+## ICA
+
+
+```{r}
+
+ica_rec <- ship_rec %>% 
+  step_ica(all_predictors())
+
+ica_prep <- prep(ica_rec)
+
+ica_prep
+
+```
+
+```{r}
+ica_juiced <- juice(ica_prep)
+
+ica_juiced
+```
+
+
+```{r}
+ica_juiced %>% 
+  ggplot(aes(IC1, IC2, colour = type)) +
+  geom_point(alpha = .5)
+
+```
+
+### t-SNE
+
+t-SNE is a non-linear clustering algorithm.
+
+Useful for visualizing highly dimensional data.
+
+```{r}
+library(Rtsne)
+
+tsne_rec <- recipe( ~ ., data = df_type_7 %>% select(launched:position_received)) %>% 
+  # update_role(name, type, new_role = "id") %>% 
+  step_normalize(all_predictors())
+
+df_type_6_matrix <- df_type_7 %>% select(launched:position_received) %>%
+  distinct() %>% 
+  as.matrix() %>% scale()
+
+df_type_6_labels <- df_type_7 %>%
+  distinct(across(launched:position_received), .keep_all = T) %>% select(name, type)
+
+tsne_prep <- prep(tsne_rec)
+
+tsne_prep %>% as.matrix()
+
+tsne_df <- Rtsne(df_type_6_matrix, perplexity = 25)
+
+```
+
+
+```{r}
+
+plotly_df <- as_tibble(tsne_df$Y) %>% 
+  cbind(df_type_6_labels) %>% 
+  as_tibble() %>% 
+  mutate(type = as.factor(type))
+
+plotly_df %>% 
+  ggplot(aes(V1, V2, colour = type)) +
+  geom_point()
+
+```
+
+### 3d t-SNE plot
+
+```{r}
+
+tsne_d_3d <- Rtsne(df_type_6_matrix, perplexity = 25, dim = 3)
+
+plotly_df_3d <- as_tibble(tsne_d_3d$Y) %>% 
+  cbind(df_type_6_labels) %>% 
+  as_tibble() %>% 
+  mutate(type = as.factor(type))
+
+plotly_tsne_3d <- plot_ly(plotly_df_3d, x = ~V1, y = ~V2, z = ~V3, color = ~type) %>% 
+  add_markers(colors = "Dark2")
+
+plotly_tsne_3d
+
+# htmlwidgets::saveWidget(plotly_3d, file = "tsne_plot.html")
+
+```
+
+
+### Palmer penguins test
+
+```{r}
+p_load(palmerpenguins)
+
+penguins %>% 
+  ggplot(aes(bill_length_mm,
+             bill_depth_mm,
+             size = body_mass_g,
+             colour = species)) +
+  geom_point()
+
+penguins_df <- penguins %>% 
+  select(species:sex) %>% 
+  na.omit()
+
+penguins_rec <- recipe(species ~ ., data = penguins_df) %>% 
+  update_role(species, new_role = "id") %>% 
+  step_normalize(all_numeric()) %>% 
+  step_dummy(island, sex)
+
+pca_rec <- penguins_rec %>% 
+  step_pca(all_predictors())
+
+pca_prep <- prep(pca_rec)
+
+pca_juiced <- juice(pca_prep)
+
+pca_juiced %>% 
+  ggplot(aes(PC1, PC2, colour = species)) +
+  geom_point()
+
+pca_juiced %>% 
+  ggplot(aes(PC1, PC3, colour = species)) +
+  geom_point()
+
+plotly_pca_3d <- plot_ly(pca_juiced, x = ~PC1, y = ~PC2, z = ~PC3, color = ~species) %>% 
+  add_markers(colors = "Dark2")
+
+plotly_pca_3d
+
+```
+

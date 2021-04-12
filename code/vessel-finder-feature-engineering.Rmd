@@ -1,0 +1,319 @@
+---
+title: "vessel-finder-feature-engineering"
+author: "JJayes"
+date: "11/04/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+
+
+library(pacman)
+p_load(tidyverse, rvest, glue, lubridate)
+```
+
+## Purpose
+
+Feature engineering the scraped data from the vessel finder pages.
+
+### Reading in data
+
+```{r}
+df <- read_rds("data/vessel_finder_data_detailed_location.rds")
+
+```
+
+### Unnest and process
+
+```{r}
+df <- df %>% 
+  unnest(info_box) %>% 
+  select(-data, -info_box, -url)
+```
+
+We want to go to a wide data frame but the problem is that there are duplicate labels
+
+```{r}
+df %>% 
+  count(table_titles, sort = T)
+```
+
+Flag has more than one observation per ship. It appears in two places in the data table. Does it ever differ within each ship?
+
+```{r}
+df <- df %>% 
+  distinct(.keep_all = T)
+
+df %>% 
+  count(table_titles, sort = T)
+
+df <- df %>% 
+  group_by(ship_url) %>% 
+  distinct(table_titles, .keep_all = T) %>% 
+  ungroup() 
+
+```
+
+Yes, there are some ships with multiple flags, and multiple ways that the same thing is written e.g. "United Kingdom" and "United Kingdom (UK)"
+
+We can also just keep only one observation of flag for each ship - the first one.
+
+```{r}
+
+df <- df %>% 
+  # head(100) %>% 
+  mutate(table_values = str_squish(table_values)) %>% 
+  pivot_wider(names_from = table_titles, values_from = table_values) %>% 
+  janitor::clean_names()
+
+
+```
+
+
+We will use the coutnrycode package to mutate flags to a country code which we can then use and easily recover the name later.
+
+```{r}
+library(countrycode)
+
+df <- df %>%
+  mutate(flag_code = countrycode(flag, 
+                                    origin = "country.name", 
+                                    destination = "iso3c"))
+
+df %>% 
+  skimr::skim()
+
+```
+
+### Location data.
+
+```{r}
+df <- df %>% 
+  mutate(position_desc = str_extract(position, "(is at.* )"),
+         position_desc = str_remove(position_desc, "reported .*"),
+         position_desc = str_remove(position_desc, "is at")) %>% 
+  mutate(coords = str_extract(position_desc, "\\(.*\\)")) %>% 
+  extract(coords, c("lat", "long"), "(.*)/(.*)") %>% 
+  mutate(lat = str_squish(str_remove(lat, "\\(coordinates")),
+         long = str_squish(str_remove(long, "\\)"))) %>% 
+  mutate(lat = case_when(
+    str_detect(lat, "N") ~ parse_number(lat),
+    str_detect(lat, "S") ~ -parse_number(lat)
+  )) %>% 
+    mutate(long = case_when(
+    str_detect(long, "E") ~ parse_number(long),
+    str_detect(long, "W") ~ -parse_number(long)
+  )) %>% 
+  mutate(position_desc = str_squish(str_remove(position_desc, "\\(.*")))
+
+```
+
+
+
+We want to keep
+
+name:ship_url, course_speed, current_draught, position_received, flag, flag_code, length_beam, gross_tonnage, summer_deadweight_t
+
+```{r}
+df <- df %>% 
+  select(name:current_draught, position_received, flag, flag_code, length_beam, gross_tonnage, summer_deadweight_t, position_desc, lat, long)
+
+# df <- df %>% 
+#   naniar::replace_with_na_all(condition = ~.x == "-") %>% 
+#   naniar::replace_with_na_all(condition = ~.x == "")
+
+```
+
+
+
+```{r}
+df <- df %>% 
+  # speed and course
+  extract(course_speed, c("course", "speed"), "(.*)/(.*)") %>% 
+  mutate(course = parse_number(course),
+         speed = parse_number(speed)) %>% 
+  # current_draught
+  mutate(current_draught = parse_number(current_draught)) %>% 
+  #  position received
+  mutate(position_received = str_squish(str_remove_all(position_received, "ago i"))) %>% 
+  mutate(position_received = duration(position_received)) %>% 
+  # length and beam 2
+  # speed and course
+  extract(length_beam, c("length_2", "beam_2"), "(.*)/(.*)") %>% 
+  mutate(length_2 = parse_number(length_2),
+         beam_2 = parse_number(beam_2)) %>% 
+  # gross tonnage and summer deadweight tonnage
+  mutate(across(gross_tonnage:summer_deadweight_t, parse_number))
+```
+
+### How many country codes should I include?
+
+```{r}
+library(tidytext)
+
+df %>% 
+  group_by(type) %>% 
+  add_count(flag_code) %>% 
+  ungroup() %>% 
+  mutate(flag_code = reorder_within(flag_code, n, type)) %>% 
+  filter(n > 20) %>% 
+  ggplot(aes(n, flag_code, colour = flag_code)) +
+  geom_col(show.legend = F) +
+  facet_wrap(~ type, scales = "free_y") +
+  scale_y_reordered()
+  
+```
+
+Nevermind, I will use `step other` in the recipes package as part of tidymodels.
+
+```{r}
+# df <- df %>% 
+#   group_by(type) %>% 
+#   mutate(flag_code = fct_lump(flag_code, 25)) %>% 
+#   ungroup()
+
+```
+
+
+### Does being moving differ by type?
+
+```{r}
+df %>% 
+  ggplot(aes(speed)) +
+  geom_histogram()
+
+df %>% 
+  mutate(type = fct_lump(type, 15)) %>% 
+  mutate(speed_positive = if_else(speed > 1, 1, 0)) %>% 
+  group_by(type) %>% 
+  summarise(avg_is_moving = mean(speed_positive, na.rm = T)) %>% 
+  ungroup() %>% 
+  mutate(type = fct_reorder(type, avg_is_moving)) %>% 
+  ggplot(aes(avg_is_moving, type, fill = type)) +
+  geom_col() +
+  # scale_fill_brewer(palette = "Dark2") +
+  labs(title = "How many of each type are moving?")
+
+```
+
+### Does speed differ by type
+
+```{r}
+df %>% 
+  mutate(type = fct_lump(type, 8)) %>% 
+  filter(between(speed, 1, 30)) %>% 
+  ggplot(aes(speed, fill = type)) +
+  geom_density(alpha = .5)
+
+df %>% 
+  filter(!is.na(type),
+         !type %in% c("unknown")) %>% 
+  mutate(type = fct_lump(type, 8)) %>% 
+  filter(between(speed, 2.5, 30)) %>% 
+  mutate(type = fct_reorder(type, speed, .fun = median)) %>% 
+  ggplot(aes(speed, fill = type)) +
+  geom_boxplot(alpha = .5)
+
+```
+
+### GGrdiges
+
+```{r}
+library(ggridges)
+
+df %>% 
+  filter(!is.na(type)) %>% 
+  mutate(type = fct_lump(type, 15)) %>% 
+  filter(!type %in% c("unknown", "Other")) %>% 
+  filter(between(speed, 1, 30)) %>% 
+  mutate(type = fct_reorder(type, speed, .fun = median)) %>% 
+  ggplot(aes(speed, type, fill = type)) +
+  geom_density_ridges() +
+  labs(title = "Distributions of moving speed")
+
+df %>% 
+  filter(type == "sailing vessel")
+
+```
+
+```{r}
+
+df %>% 
+  mutate(type = fct_lump(type, 9)) %>% 
+  ggplot(aes(long, lat, colour = type)) +
+  geom_point(alpha = .5)
+
+```
+
+
+### Making a dummy for "is moving"
+
+```{r}
+
+df <- df %>% 
+  mutate(is_moving = if_else(speed > 1, 1, 0),
+         is_moving = as.factor(is_moving))
+
+```
+
+### Grouping types
+
+```{r}
+
+df %>% 
+  filter(str_detect(type, "fish")) %>% 
+  count(type, sort = T)
+
+df %>% 
+  filter(str_detect(type, "fish")) %>% 
+  ggplot(aes(length, width, colour = type)) +
+  geom_smooth(method = "lm", show.legend = F) +
+  geom_point(alpha = .5, show.legend = F) +
+  facet_wrap(~ type)
+
+df <- df %>% 
+  mutate(type = if_else(str_detect(type, "fish"), "fishing vessel", type))
+
+```
+
+### Finishing up
+
+```{r}
+df <- df %>% 
+  mutate(type = str_to_lower(type),
+         type = str_squish(type))
+
+df %>% 
+  filter(!type %in% c(NA, "unknown"),
+         !is.na(length),
+         !is.na(launched),
+         !is.na(width)) %>% 
+  add_count(type)
+
+write_rds(df, "data/clean_1.rds")
+
+```
+
+
+### KNN impute current draught
+
+```{r}
+
+df %>% skimr::skim()
+
+type_rec <- recipe(type ~ ., data = df) %>% 
+  update_role(name, type, new_role = "id")
+
+type_rec <- type_rec %>% 
+  step_knnimpute(current_draught)
+
+```
+
+
+```{r}
+# write_rds(df, file = "data/vessel_finder_data_detailed_clean.rds")
+
+```
+
+
