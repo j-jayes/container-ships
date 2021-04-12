@@ -198,7 +198,6 @@ html %>%
 
 
 ```{r}
-
 get_ship_image_vessel_finder <- function(ship_url){
 
   html <- read_html(ship_url)
@@ -213,7 +212,11 @@ get_ship_image_vessel_finder <- function(ship_url){
   download.file(., destfile = glue("ship_images/1_{id}.jpg"), mode = "wb")
                 
 }
+```
 
+### Testing
+
+```{r}
 ship_url <- "https://www.vesselfinder.com/vessels/FSO-AFRICA-IMO-9224764-MMSI-538002388"
 
 get_ship_image_vessel_finder(ship_url)
@@ -222,14 +225,18 @@ get_ship_image_vessel_finder(ship_url)
 
 ```
 
-
-
 ### Iterating through
 
 ```{r}
-df <- vessel_finder_data_detailed_55k  %>%
-  filter(row_number() < 20) %>%
-  mutate(info_box = map(ship_url, possibly(get_ship_info_vessel_finder, "failed")))
+df <- vessel_finder_data_detailed_location %>% 
+  select(name, ship_url)
+
+df <- df %>% 
+  distinct()
+
+df <- df  %>%
+  # filter(row_number() < 20) %>%
+  mutate(img = map(ship_url, possibly(get_ship_image_vessel_finder, "failed")))
 
 ```
 

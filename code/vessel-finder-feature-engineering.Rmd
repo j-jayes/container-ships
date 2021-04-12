@@ -35,6 +35,9 @@ df <- df %>%
 We want to go to a wide data frame but the problem is that there are duplicate labels
 
 ```{r}
+
+
+
 df %>% 
   count(table_titles, sort = T)
 ```
@@ -163,6 +166,11 @@ df %>%
   facet_wrap(~ type, scales = "free_y") +
   scale_y_reordered()
   
+df %>% 
+  mutate(index = row_number()) %>% 
+  filter(str_detect(name, "FUTAGO")) %>% view()
+
+
 ```
 
 Nevermind, I will use `step other` in the recipes package as part of tidymodels.
