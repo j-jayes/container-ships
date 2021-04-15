@@ -234,8 +234,12 @@ df <- vessel_finder_data_detailed_location %>%
 df <- df %>% 
   distinct()
 
+df %>% 
+  mutate(index = row_number()) %>% 
+  filter(str_detect(ship_url, "SENSO"))
+
 df <- df  %>%
-  # filter(row_number() < 20) %>%
+  filter(row_number() > 35678) %>%
   mutate(img = map(ship_url, possibly(get_ship_image_vessel_finder, "failed")))
 
 ```

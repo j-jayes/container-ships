@@ -1,0 +1,25 @@
+---
+title: "image-pre-processing"
+author: "JJayes"
+date: "15/04/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Resizing images
+
+```{r}
+# use openCV resize image.
+library(opencv)
+
+img <- magick::image_read("ship_images/1_HUA-GAO-IMO-8418629-MMSI-413376030.jpg")
+
+img <- ocv_read("ship_images/1_NOVEMBER-IMO-0-MMSI-244730157.jpg")
+
+img_res <- opencv::ocv_resize(img, width = 320, height = 320)
+
+```
+
