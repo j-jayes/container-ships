@@ -11,6 +11,7 @@ knitr::opts_chunk$set(echo = F, message = F, warning = F)
 library(tidyverse)
 library(tidymodels)
 library(plotly)
+library(glue)
 
 theme_set(theme_light())
 
@@ -78,7 +79,7 @@ plotly::ggplotly(f)
 df %>% 
   mutate(type = fct_lump(type, 15)) %>% 
   add_count(type) %>% 
-  mutate(type = glue("{type} ({nnn})")) %>% 
+  mutate(type = glue("{type} ({n})")) %>% 
   ggplot(aes(length, width, size = gt, colour = type)) +
   geom_point() +
   facet_wrap(~ type)
@@ -102,9 +103,12 @@ df_type_7 <-  df %>%
   filter(type %in% c("bulk carrier", "container ship", "fishing vessel", 
                      "tug", "lpg tanker", "lng tanker", "yacht"))
 
+df_short %>% 
+  count(type, sort = T)
+
 df_type_7 <-  df_short %>% 
-  filter(type %in% c("container ship", "fishing vessel", 
-                     "tug", "oil products tanker"))
+  filter(type %in% c("container ship", "chemical/oil products tanker", 
+                     "bulk carrier", "offshore tug/supply ship"))
 
 df_type_7 %>% 
   ggplot(aes(long, lat, colour = type)) +
@@ -129,8 +133,10 @@ df_type_7 %>%
   filter(between(speed, 1, 30)) %>% 
   mutate(type = fct_reorder(type, speed, .fun = median)) %>% 
   ggplot(aes(speed, type, fill = type)) +
-  geom_density_ridges() +
-  labs(title = "Distributions of moving speed")
+  geom_density_ridges(show.legend = F) +
+  labs(title = "Distributions of moving speed",
+       x = "Speed in knots",
+       y = NULL)
 
 ```
 
@@ -146,8 +152,8 @@ Here we have a nice wide data frame with 5 numerical predictors.
 We will use a `recipe` from the `tidymodels` meta-package to do the PCA. First, we update the role of the name and type variables. These will not be used in the dimensionality reduction recipe, but we want to keep them in the dataset. 
 
 ```{r}
-ship_rec <- recipe( ~ ., data = df_type_7) %>% 
-  update_role(name, type, new_role = "id") %>% 
+ship_rec <- recipe(type ~ ., data = df_type_7) %>% 
+  update_role(name, new_role = "id") %>% 
   step_normalize(all_numeric()) %>%
   step_other(flag_code:position_desc) %>%
   step_dummy(flag_code:position_desc, one_hot = T)
@@ -240,12 +246,32 @@ Wow!! Now we can see that contianer ships are in one arm, while crude oil tanker
 
 ### PCA 3d plot
 
+We can project each observation into a 3-dimensional space by using the first three principal components.
+
 ```{r}
 
 plotly_pca_3d <- plot_ly(pca_juiced, x = ~PC1, y = ~PC2, z = ~PC3, color = ~type) %>% 
-  add_markers(colors = "Dark2")
+  add_markers(colors = "Dark2",
+              size = .5)
 
 plotly_pca_3d
+
+```
+
+### Percent of variation explained by each principal components
+
+```{r}
+sdev <- pca_prep$steps[[4]]$res$sdev
+
+percent_variation <- sdev^2 / sum(sdev^2)
+
+tibble(component = unique(tidied_pca$component),
+       percent_var = percent_variation) %>% 
+  mutate(component = fct_inorder(component)) %>% 
+  filter(component %in% c(glue("PC{1:10}"))) %>% 
+  ggplot(aes(component, percent_var)) +
+  geom_col(fill = "midnightblue", alpha = .8) +
+  scale_y_continuous(labels = scales::percent_format())
 
 ```
 
@@ -400,50 +426,6 @@ plotly_tsne_3d <- plot_ly(plotly_df_3d, x = ~V1, y = ~V2, z = ~V3, color = ~type
 plotly_tsne_3d
 
 # htmlwidgets::saveWidget(plotly_3d, file = "tsne_plot.html")
-
-```
-
-
-### Palmer penguins test
-
-```{r}
-p_load(palmerpenguins)
-
-penguins %>% 
-  ggplot(aes(bill_length_mm,
-             bill_depth_mm,
-             size = body_mass_g,
-             colour = species)) +
-  geom_point()
-
-penguins_df <- penguins %>% 
-  select(species:sex) %>% 
-  na.omit()
-
-penguins_rec <- recipe(species ~ ., data = penguins_df) %>% 
-  update_role(species, new_role = "id") %>% 
-  step_normalize(all_numeric()) %>% 
-  step_dummy(island, sex)
-
-pca_rec <- penguins_rec %>% 
-  step_pca(all_predictors())
-
-pca_prep <- prep(pca_rec)
-
-pca_juiced <- juice(pca_prep)
-
-pca_juiced %>% 
-  ggplot(aes(PC1, PC2, colour = species)) +
-  geom_point()
-
-pca_juiced %>% 
-  ggplot(aes(PC1, PC3, colour = species)) +
-  geom_point()
-
-plotly_pca_3d <- plot_ly(pca_juiced, x = ~PC1, y = ~PC2, z = ~PC3, color = ~species) %>% 
-  add_markers(colors = "Dark2")
-
-plotly_pca_3d
 
 ```
 

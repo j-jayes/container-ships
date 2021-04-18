@@ -1,0 +1,138 @@
+---
+title: "palmer-penguins-pca"
+author: "JJayes"
+date: "15/04/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+library(pacman)
+p_load(tidyverse)
+p_load(tidymodels)
+p_load(plotly)
+
+theme_set(theme_light())
+```
+
+## Palmer penguins PCA
+
+### Reading in data
+
+Penguins data...
+
+```{r}
+p_load(palmerpenguins)
+
+penguins
+
+```
+
+### How do they differ?
+
+```{r}
+penguins %>% 
+  ggplot(aes(bill_length_mm,
+             bill_depth_mm,
+             size = body_mass_g,
+             colour = species)) +
+  geom_point()
+```
+
+### Data processing
+
+```{r}
+penguins_df <- penguins %>% 
+  select(species:sex) %>% 
+  na.omit()
+```
+
+### PCA recipe
+
+```{r}
+penguins_rec <- recipe(species ~ ., data = penguins_df) %>% 
+  # update_role(species, new_role = "id") %>% 
+  step_normalize(all_numeric()) %>% 
+  step_dummy(island, sex)
+```
+
+### Apply the PCA
+
+```{r}
+pca_rec <- penguins_rec %>% 
+  step_pca(all_predictors())
+
+pca_prep <- prep(pca_rec)
+
+pca_juiced <- juice(pca_prep)
+
+pca_juiced
+```
+
+This is what the output looks like
+
+### What are the components made of?
+
+```{r}
+
+tidied_pca <- tidy(pca_prep, 3)
+
+tidied_pca %>% 
+  filter(component %in% paste0("PC", 1:5)) %>% 
+  mutate(component = fct_inorder(component)) %>% 
+  ggplot(aes(value, terms, fill = terms)) +
+  geom_col(show.legend = F) +
+  facet_wrap(~ component, nrow = 1)
+
+```
+
+```{r}
+
+library(tidytext)
+
+tidied_pca %>% 
+  filter(component %in% paste0("PC", 1:3)) %>% 
+  group_by(component) %>% 
+  top_n(8, abs(value)) %>% 
+  ungroup() %>% 
+  mutate(terms = reorder_within(terms, abs(value), within = component)) %>% 
+  ggplot(aes(abs(value), terms, fill = value > 0)) +
+  geom_col() +
+  scale_y_reordered() +
+  facet_wrap(~ component, scales = "free_y") +
+  labs(y = NULL,
+       fill = "Positive?")
+
+```
+
+### Plotting the different components
+
+Easy to separate the Gentoos. More difficult to seperate the Adelie and Chinstrap
+
+```{r}
+pca_juiced %>% 
+  ggplot(aes(PC1, PC2, colour = species)) +
+  geom_point()
+```
+
+Using PCA1 and PCA3 it is easy to seperate the different species.
+
+```{r}
+pca_juiced %>% 
+  ggplot(aes(PC1, PC3, colour = species)) +
+  geom_point()
+```
+
+### 3D plot
+
+We can even make a nice plot in 3-dimensions. You can zoom in and look around with your mouse.
+
+```{r}
+plotly_pca_3d <- plot_ly(pca_juiced, x = ~PC1, y = ~PC2, z = ~PC3, color = ~species) %>% 
+  add_markers(colors = "Dark2",
+              size = 1)
+
+plotly_pca_3d
+
+```
+

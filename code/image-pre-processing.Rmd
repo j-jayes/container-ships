@@ -7,19 +7,103 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+library(pacman)
+p_load(tidyverse, glue, keras, tensorflow)
 ```
+
+### Image pre-processing pipeline
+
+Following [This post](https://tensorflow.rstudio.com/tutorials/beginners/basic-ml/tutorial_basic_classification/)
+
+### Reading in the data
+
+```{r}
+image_list <- list.files(path = "ship_images", pattern = "*.jpg", full.names = T) 
+  
+image_list <- image_list[1:10]
+```
+
+### I need to match the images with their type
+
+```{r}
+# read in data
+df <- readRDS("~/Recon/container-ships/data/clean_1.rds")
+
+df <- df %>% 
+  mutate(id = str_remove(ship_url, "https://www.vesselfinder.com/vessels/"))
+
+# read in image list
+image_list_match <- list.files(path = "ship_images", pattern = "*.jpg", full.names = T) %>% 
+  as_tibble()
+  
+image_list_match <- image_list_match %>% 
+  select(file_path = value) %>% 
+  mutate(id = str_remove(file_path, "ship_images/1_"),
+         id= str_remove(id, ".jpg"))
+
+df <- left_join(df, image_list_match, by = "id")
+
+
+```
+
+### What are the types with no images?
+
+```{r}
+
+df %>% 
+  filter(is.na(file_path)) %>% 
+  count(type, sort = T)
+
+```
+
+Interesting! military ops have no pictures maybe because secrecy!
+
+```{r}
+df <- df %>% 
+  filter(!is.na(file_path),
+         !type %in% c(NA, "unknown"))
+
+df %>%
+  count(type, sort = T)
+
+```
+
+### Which types should we keep?
+
+Let's start with nine
+
+```{r}
+
+df <- df %>% 
+  add_count(type) %>% 
+  filter(n > 1534) %>% 
+  select(-n)
+
+types <- df %>% 
+  select(type)
+
+```
+
+Now we have 24,786 ships.
 
 ### Resizing images
 
 ```{r}
-# use openCV resize image.
-library(opencv)
+# Convert images to Keras array
+get_img <- function(x) {
+  arrays <- lapply(x, function(path) {
+    img <- image_load(path, target_size = c(224,224))
+    x <- image_to_array(img)
+    x <- array_reshape(x, c(1, dim(x)))
+    x <- imagenet_preprocess_input(x)
+  })
+  do.call(abind::abind, c(arrays, list(along = 1)))
+}
 
-img <- magick::image_read("ship_images/1_HUA-GAO-IMO-8418629-MMSI-413376030.jpg")
+image_array <- map(df %>% filter(row_number() < 10) %>% select(file_path), get_img)
 
-img <- ocv_read("ship_images/1_NOVEMBER-IMO-0-MMSI-244730157.jpg")
-
-img_res <- opencv::ocv_resize(img, width = 320, height = 320)
+image_array[[1]]
 
 ```
 
